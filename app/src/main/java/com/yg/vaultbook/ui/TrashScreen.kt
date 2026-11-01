@@ -85,6 +85,7 @@ fun TrashScreen(
     var reload by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var confirmPurge by remember { mutableStateOf<PurgeTarget?>(null) }
+    var confirmRestoreAll by remember { mutableStateOf(false) }
 
     LaunchedEffect(reload) {
         // 到期清理只在首次进入时做；手动刷新（reload>0）不再清，
@@ -125,6 +126,23 @@ fun TrashScreen(
         }
     }
 
+    /**
+     * 一次把回收站里的全恢复回去。
+     *
+     * 误删一屏之后一条条点"恢复"是纯体力活，而恢复本来也没有风险
+     * （条目回到列表，想删再删一次），所以只做一次轻确认就执行。
+     */
+    fun restoreAll() {
+        if (busy) return
+        busy = true
+        scope.launch {
+            runCatching { repo.restoreAllTrashed() }
+            busy = false
+            reload++
+            onRestored()
+        }
+    }
+
     Scaffold(
         topBar = {
             VaultTopBar(
@@ -133,6 +151,12 @@ fun TrashScreen(
                 onBack = onBack,
                 actions = {
                     if (items.isNotEmpty()) {
+                        TextButton(
+                            onClick = { confirmRestoreAll = true },
+                            enabled = !busy
+                        ) {
+                            Text("全部恢复", color = MaterialTheme.colorScheme.primary)
+                        }
                         TextButton(
                             onClick = { confirmPurge = PurgeTarget.All },
                             enabled = !busy
@@ -224,6 +248,24 @@ fun TrashScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmPurge = null }) { Text("取消") }
+            }
+        )
+    }
+    if (confirmRestoreAll) {
+        AlertDialog(
+            onDismissRequest = { confirmRestoreAll = false },
+            title = { Text("全部恢复？") },
+            text = {
+                Text("这 ${items.size} 条记录会回到列表里，收藏、分类、密码历史都跟着回来。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRestoreAll = false
+                    restoreAll()
+                }) { Text("全部恢复") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRestoreAll = false }) { Text("取消") }
             }
         )
     }

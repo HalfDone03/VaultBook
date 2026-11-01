@@ -114,6 +114,22 @@ data class EntrySummaryRow(
 )
 
 /**
+ * 搜索备注用的投影：只有 id 和备注密文。
+ *
+ * 为什么要单独一个查询，而不是把 `notes_ct` 加进 [EntrySummaryRow]：
+ * 备注是唯一一个"长度完全不受控"的字段（有人写两行，有人贴一整段备忘），
+ * 把它挂进列表主查询，等于每次列表刷新都为所有条目的备注付一次 I/O。
+ *
+ * 而搜索又必须能看到备注内容（用户会写"公司邮箱别名"这种只存在于备注里的词）。
+ * 折中是：列表刷新不动它，**搜索索引重建时单独拉一次**这一列。它只被
+ * 解密、取词、丢掉，不会进任何 UI 状态。
+ */
+data class EntryNotesRow(
+    @ColumnInfo(name = "id") val id: String,
+    @ColumnInfo(name = "notes_ct") val notesCt: ByteArray?
+)
+
+/**
  * 密码历史。只在"密码被修改"时写一行，用于误改回滚。
  *
  * 上限 20 条/条目，由 `EntryHistoryDao.trim()` 在每次插入后裁剪。

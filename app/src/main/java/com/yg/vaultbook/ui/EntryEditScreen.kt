@@ -3,6 +3,7 @@ package com.yg.vaultbook.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.yg.vaultbook.core.util.CredentialParser
+import com.yg.vaultbook.core.util.EntrySignature
 import com.yg.vaultbook.core.util.PasswordStrength
 import com.yg.vaultbook.core.util.Totp
 import com.yg.vaultbook.data.VaultGateway
@@ -271,11 +273,25 @@ fun EntryEditScreen(
         error = null
         scope.launch {
             var saved = 0
+            var skipped = 0
             try {
+                // 库里已有的「标题 + 账号」签名。批量粘贴同一段文本两遍、
+                // 或者一段里本来就写了重复的两行，都会在这里被拦下 ——
+                // 以前是照存，结果列表里并排两条一模一样的记录。
+                val seen = runCatching { repo.loadSummaries() }
+                    .getOrDefault(emptyList())
+                    .mapTo(mutableSetOf()) { EntrySignature.of(it.title, it.username) }
                 for (row in rows) {
+                    val title = (row.title ?: row.url ?: row.username ?: "").trim()
+                    val user = if (onlyTitlePassword) null else row.username
+                    val key = EntrySignature.of(title, user)
+                    if (key in seen) {
+                        skipped++
+                        continue
+                    }
                     val draft = EntryDraft(
-                        title = (row.title ?: row.url ?: row.username ?: "").trim(),
-                        username = if (onlyTitlePassword) null else row.username,
+                        title = title,
+                        username = user,
                         password = row.password?.toCharArray(),
                         url = row.url,
                         notes = null,
@@ -286,6 +302,7 @@ fun EntryEditScreen(
                     )
                     try {
                         repo.createEntry(draft)
+                        seen += key
                         saved++
                     } finally {
                         draft.clearSecrets()
@@ -293,6 +310,13 @@ fun EntryEditScreen(
                 }
                 batchRows = null
                 clipboardBatch = emptyList()
+                if (skipped > 0) {
+                    val msg = when {
+                        saved == 0 -> "这 $skipped 条库里都已经有了"
+                        else -> "存了 $saved 条，跳过 $skipped 条重复的"
+                    }
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
                 onDone()
             } catch (e: Exception) {
                 error = "连第 ${saved + 1} 条就停了：${e.message ?: "写入失败"}" +

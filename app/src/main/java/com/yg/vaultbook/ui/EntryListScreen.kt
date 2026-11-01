@@ -29,8 +29,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
@@ -42,6 +45,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,7 +86,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yg.vaultbook.core.util.Normalize
-import com.yg.vaultbook.core.util.Pinyin
 import com.yg.vaultbook.data.VaultGateway
 import com.yg.vaultbook.data.entity.AuditLogEntity
 import com.yg.vaultbook.domain.EntrySummary
@@ -152,6 +156,12 @@ fun EntryListScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val snackbar = remember { SnackbarHostState() }
 
+    // 排序方式存盘：重启后仍是上次选的那个。
+    // 用 remember 而不是 rememberSaveable —— 值本身在 SharedPreferences 里，
+    // 进程重建后从盘上读回来即可，不必再走一次 Bundle。
+    val context = LocalContext.current
+    var sort by remember { mutableStateOf(ListSortPrefs.load(context)) }
+
     // 分类名要解密一次才能显示在筛选条上。
     //
     // 走 Room 的 Flow 而不是"条目数变了就重取"：改分类名不改条目数，
@@ -165,6 +175,24 @@ fun EntryListScreen(
         mutableStateOf<QuickFilter>(QuickFilter.All)
     }
 
+    // 备注正文：单独按需读一次，不塞进列表投影。
+    //
+    // 摘要投影里刻意没有 notes_ct —— 备注可能有几千字，跟着列表每次刷新一起搬
+    // 会把最热的查询拖慢。但「搜备注」是用户真会用到的（备注里写了「公司邮箱」
+    // 「这台手机的解锁密码」之类），所以这里再单独查一次密文、在后台解密成明文，
+    // 只在搜索索引里用，不参与界面展示。
+    //
+    // key 是 items：条目变了才重算。空库时不发查询。
+    val noteTexts by produceState<Map<String, String>>(emptyMap(), items) {
+        value = if (items.isEmpty()) {
+            emptyMap()
+        } else {
+            withContext(Dispatchers.IO) {
+                runCatching { repo.loadNoteTexts() }.getOrDefault(emptyMap())
+            }
+        }
+    }
+
     // 搜索索引 + 各筛选的条目数：一次遍历算完，且不放在组合期。
     //
     // 原先这是两个 `remember(items) { ... }`：一个拼全量搜索串再做归一化 + 拼音
@@ -175,11 +203,13 @@ fun EntryListScreen(
     // 现在合并成一次遍历丢到 Dispatchers.Default 上算，算完才触发重组。
     // 用 produceState 而不是 remember：items 变化时旧值继续显示（上一次的
     // 索引与计数仍然有效可用），不会先变空再填回来，避免筛选条数字闪一下。
-    val derived by produceState(ListDerived.EMPTY, items) {
+    val derived by produceState(ListDerived.EMPTY, items, sort, noteTexts, categories) {
         value = if (items.isEmpty()) {
             ListDerived.EMPTY
         } else {
-            withContext(Dispatchers.Default) { computeListDerived(items) }
+            withContext(Dispatchers.Default) {
+                computeListDerived(items, sort, noteTexts, categories)
+            }
         }
     }
 
@@ -219,22 +249,23 @@ fun EntryListScreen(
 
     // 先按筛选收窄，再在收窄结果里搜索 —— 顺序反过来的话，
     // "在登录分类里搜 taobao" 会先搜出全网再筛分类，白做一遍全量匹配。
-    val filtered = remember(items, query, derived, filter) {
+    // 排序后的全量列表来自 derived —— 排序在后台线程做过一次，
+    // 这里只做筛选与匹配，不再排序（每次输入都排一遍会拖慢搜索）。
+    val filtered = remember(derived, query, filter) {
         // 取到局部变量：filter 是 `by remember` 的委托属性，
         // 直接在 when 分支里用它做智能转换会报 "delegated property"。
         val current = filter
         val scoped = when (current) {
-            QuickFilter.All -> items
-            QuickFilter.Favorite -> items.filter { it.favorite }
-            QuickFilter.Uncategorized -> items.filter { it.categoryId == null }
-            is QuickFilter.Category -> items.filter { it.categoryId == current.id }
+            QuickFilter.All -> derived.sorted
+            QuickFilter.Favorite -> derived.sorted.filter { it.favorite }
+            QuickFilter.Uncategorized -> derived.sorted.filter { it.categoryId == null }
+            is QuickFilter.Category -> derived.sorted.filter { it.categoryId == current.id }
         }
         val q = Normalize.forSearch(query)
         if (q.isEmpty()) scoped
         else scoped.filter { derived.searchIndex[it.id]?.contains(q) == true }
     }
 
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     /**
@@ -363,11 +394,29 @@ fun EntryListScreen(
 
             // 16 个分类平铺放不下，横向滚一条。只显示"有条目的"分类 ——
             // 空分类点进去是一条空列表，纯属浪费一次点击。
-            FilterBar(
-                filters = filters,
-                selected = filter,
-                onSelect = { filter = it }
-            )
+            //
+            // 右边的排序胶囊不随筛选条滚动：它是个"设置"性质的东西，
+            // 跟着横向滚走的话用户会以为它属于某一个分类。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.weight(1f)) {
+                    FilterBar(
+                        filters = filters,
+                        selected = filter,
+                        onSelect = { filter = it }
+                    )
+                }
+                SortMenu(
+                    current = sort,
+                    onSelect = {
+                        sort = it
+                        ListSortPrefs.save(context, it)
+                    },
+                    modifier = Modifier.padding(end = 16.dp)
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
 
@@ -1083,37 +1132,52 @@ private data class QuickCounts(
 }
 
 /**
- * 列表页的派生数据：搜索索引 + 筛选计数。
+ * 列表页的派生数据：搜索索引 + 筛选计数 + 排好序的列表。
  *
- * 打包成一个对象而不是两个状态，是为了让它们永远来自**同一次** items 快照 ——
+ * 打包成一个对象而不是三个状态，是为了让它们永远来自**同一次** items 快照 ——
  * 分开算的话会在重组中途出现"索引是新的、计数是旧的"这种半更新状态。
+ *
+ * [sorted] 放在这里而不是在界面里现排：排序要按拼音键比，几百条每次重组都排
+ * 一遍会拖慢输入搜索时的每一帧。
  */
 private data class ListDerived(
     val searchIndex: Map<String, String>,
-    val counts: QuickCounts
+    val counts: QuickCounts,
+    val sorted: List<EntrySummary>
 ) {
     companion object {
-        val EMPTY = ListDerived(emptyMap(), QuickCounts.EMPTY)
+        val EMPTY = ListDerived(emptyMap(), QuickCounts.EMPTY, emptyList())
     }
 }
 
 /**
- * 一次遍历产出搜索索引与各筛选的条目数。
+ * 一次遍历产出搜索索引、各筛选的条目数与排序结果。
  *
  * 在 `Dispatchers.Default` 上跑，只读 [items] 快照，不碰 Compose 状态。
+ *
+ * 搜索键覆盖：标题、账号、网址、主机名（[EntrySummary.searchText]）
+ * 加上备注正文（[noteTexts]，由调用方单独解密后传进来）。
  */
-private fun computeListDerived(items: List<EntrySummary>): ListDerived {
-    val index = HashMap<String, String>(items.size * 2)
+private fun computeListDerived(
+    items: List<EntrySummary>,
+    sort: ListSortMode,
+    noteTexts: Map<String, String>,
+    categories: List<PlainCategory>
+): ListDerived {
+    val index = buildSearchKeys(items, noteTexts)
     val byCategory = HashMap<String?, Int>()
     var favorite = 0
     for (entry in items) {
-        index[entry.id] = Pinyin.searchKey(entry.searchText())
         if (entry.favorite) favorite++
         byCategory[entry.categoryId] = (byCategory[entry.categoryId] ?: 0) + 1
     }
+    // 分类的先后按用户在「分类管理」里排的顺序（库里已按 sort 排过）。
+    val categoryRank = HashMap<String?, Int>(categories.size)
+    categories.forEachIndexed { i, category -> categoryRank[category.id] = i }
     return ListDerived(
         searchIndex = index,
-        counts = QuickCounts(all = items.size, favorite = favorite, byCategory = byCategory)
+        counts = QuickCounts(all = items.size, favorite = favorite, byCategory = byCategory),
+        sorted = sortSummaries(items, sort, categoryRank)
     )
 }
 
@@ -1164,6 +1228,78 @@ private fun buildFilters(
     }
 
     return out
+}
+
+/**
+ * 排序切换胶囊：显示当前模式，点开选另一种。
+ *
+ * 为什么不放进设置页：排序是"看列表时顺手换一下"的动作，藏进设置要跳两次页面
+ * 才能回来，就没人用了。做成一个窄胶囊贴在筛选条右边，不占额外一行高度。
+ */
+@Composable
+private fun SortMenu(
+    current: ListSortMode,
+    onSelect: (ListSortMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(11.dp)
+
+    Box(modifier) {
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .background(colors.surface)
+                .border(1.dp, colors.outlineVariant.copy(alpha = 0.55f), shape)
+                .clickable { expanded = true }
+                .padding(start = 10.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = current.label,
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.onSurfaceVariant,
+                maxLines = 1
+            )
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = "切换排序",
+                tint = colors.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ListSortMode.values().forEach { mode ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = mode.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (mode == current) colors.primary else colors.onSurface
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(mode)
+                    },
+                    leadingIcon = {
+                        // 没选中的也占同样宽度，四行文字才对得齐。
+                        if (mode == current) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = colors.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        } else {
+                            Spacer(Modifier.size(18.dp))
+                        }
+                    }
+                )
+            }
+        }
+    }
 }
 
 /**

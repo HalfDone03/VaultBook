@@ -8,6 +8,7 @@ import com.yg.vaultbook.data.entity.CategoryEntity
 import com.yg.vaultbook.data.entity.CustomFieldEntity
 import com.yg.vaultbook.data.entity.EntryEntity
 import com.yg.vaultbook.data.entity.EntryHistoryEntity
+import com.yg.vaultbook.data.entity.EntryNotesRow
 import com.yg.vaultbook.data.entity.EntrySummaryRow
 import kotlinx.coroutines.flow.Flow
 
@@ -72,6 +73,15 @@ interface EntryDao {
             "FROM entries WHERE deleted_at IS NULL"
     )
     suspend fun loadSummaryRows(): List<EntrySummaryRow>
+
+    /**
+     * 搜索索引专用：只取 id 与备注密文，不含回收站里的。
+     *
+     * 与 [observeSummaryRows] 分开，是为了让列表刷新不为备注付 I/O；
+     * 见 `EntryNotesRow` 的说明。
+     */
+    @Query("SELECT id, notes_ct FROM entries WHERE deleted_at IS NULL")
+    suspend fun loadNotesCipher(): List<EntryNotesRow>
 
     @Query("SELECT * FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
     suspend fun loadTrashed(): List<EntryEntity>

@@ -66,6 +66,26 @@ class VaultRepository(
         db.entryDao().loadTrashed().map { toSummary(it) }
 
     /**
+     * 备注明文，供搜索索引用（`id` → 备注）。
+     *
+     * 只返回有备注的条目：空备注不必占一个键，调用方也少判一次。
+     * 解密失败的那条直接跳过 —— 一条备注坏了不该让整次搜索索引构建失败，
+     * 它仍能用标题/账号搜到。
+     *
+     * ⚠️ 返回值里是明文，调用方用完即弃，不要塞进任何 UI 状态或日志。
+     */
+    suspend fun loadNoteTexts(): Map<String, String> {
+        val out = HashMap<String, String>()
+        for (row in db.entryDao().loadNotesCipher()) {
+            val text = runCatching {
+                cipher.decryptString(row.id, FIELD_NOTES, row.notesCt)
+            }.getOrNull()
+            if (!text.isNullOrBlank()) out[row.id] = text
+        }
+        return out
+    }
+
+    /**
      * 自动填充的候选条目，已按匹配度排序。
      *
      * 只查"这个站点/这个包名"相关的行，**不做全表扫描** ——
@@ -378,6 +398,26 @@ class VaultRepository(
 
     suspend fun restoreEntry(id: String) {
         db.entryDao().restore(id, clock())
+    }
+
+    /**
+     * 把回收站里的条目全部恢复。
+     *
+     * 逐条 [restoreEntry] 而不是一条 `UPDATE ... WHERE deleted_at IS NOT NULL`：
+     * 这样才能给每条留一条审计（回收站里通常是误删的一批，恢复之后
+     * "到底恢复了哪些"仍可回溯），代价是 N 次 update，N 是回收站条数，不会大。
+     *
+     * @return 实际恢复的条数
+     */
+    suspend fun restoreAllTrashed(): Int {
+        val trashed = db.entryDao().loadTrashed()
+        for (row in trashed) {
+            db.entryDao().restore(row.id, clock())
+        }
+        if (trashed.isNotEmpty()) {
+            audit(AuditLogEntity.EVENT_DELETE, null, "restored ${trashed.size} entries")
+        }
+        return trashed.size
     }
 
     /** 物理删除，不可恢复。 */
