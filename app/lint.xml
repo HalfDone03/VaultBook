@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  lint 抑制清单。AGP 默认读模块目录下的 lint.xml。
+
+  两条都在这里写明原因，免得后来人以为是随手关警告：
+
+  ── 1. `ObsoleteSdkInt` ────────────────────────────────────────
+  提示 `res/mipmap-anydpi-v26` 目录的 `-v26` 限定符多余，
+  因为 minSdkVersion 已经是 26。
+
+  但这条限定符**不能删**：
+    1. 目录名一旦改成 `res/mipmap-anydpi`（不带 -v26），aapt2 会直接忽略该目录，
+       导致 `AndroidManifest.xml` 里的 `@mipmap/ic_launcher` 变成
+       "resource not found"、资源链接（processDebugResources）失败 —— 实测如此。
+    2. 自适应图标 `<adaptive-icon>` 本身是 API 26 引入的，放在带版本限定符的目录里
+       才是 Android Studio 模板的标准做法，所有设备都能正确回退。
+
+  ── 2. `IconLauncherShape`（只针对这一张图）────────────────────
+  lint 会检查启动器图标是否"填满了整个方形区域、没有独特剪影"。这条规则是为
+  传统"白底 + 图形"式图标写的，而本应用的图标**就是一整张插画**（用户指定的那张猫）。
+  整图铺满正是想要的效果，不是疏忽。
+
+  注意抑制范围限定到 `ic_launcher_bg.png` 这一个文件：以后若新增别的图标资源，
+  仍然会被这条检查覆盖到。
+-->
+<lint>
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+
+    <issue id="IconLauncherShape">
+        <ignore path="src/main/res/drawable-xxxhdpi/ic_launcher_bg.png" />
+    </issue>
+</lint>

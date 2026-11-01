@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标。minSdk 是 26，而自适应图标正是 API 26 引入的，
+  所以只要这一个 anydpi 版本就覆盖全部目标设备，不需要再提供 PNG 位图。
+
+  ⚠ 目录名必须保留 `-v26`：试过按 lint 提示改成 `mipmap-anydpi`，
+  aapt2 会直接忽略这个目录，报 `resource mipmap/ic_launcher not found`。
+  这条已用 app/lint.xml 定向抑制（ObsoleteSdkInt）。
+
+  ── 图标内容 ───────────────────────────────────────────────
+  背景层是那张猫的插画（`ic_launcher_bg`，按 1.5 倍画幅生成 ——
+  因为系统会把 108dp 的背景裁成中间 72dp 显示），前景层透明。
+  合起来就是"整块图标就是这张画"。
+
+  `<monochrome>` 是 Android 13 起的「主题图标」层：系统只取 alpha 遮罩、
+  用壁纸主题色重绘，所以这里是一张纯剪影的猫头（ic_launcher_monochrome），
+  不能复用彩色背景层。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_bg" />
+    <foreground android:drawable="@android:color/transparent" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

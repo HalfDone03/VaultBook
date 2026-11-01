@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  圆形图标版本。系统在部分启动器/部分机型上会优先取它。
+  内容与 ic_launcher.xml 完全相同 —— 圆形裁切由系统完成，这里不需要另画一版。
+
+  monochrome 层必须在这里也声明一遍：lint 的 MonochromeLauncherIcon 检查
+  会分别核对 icon 与 roundIcon 两个入口，只在其中一个声明会漏掉另一条。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_bg" />
+    <foreground android:drawable="@android:color/transparent" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

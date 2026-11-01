@@ -1,0 +1,67 @@
+[versions]
+agp = "8.7.2"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.25"
+coreKtx = "1.15.0"
+lifecycle = "2.8.7"
+activityCompose = "1.9.3"
+composeBom = "2024.10.00"
+coroutines = "1.9.0"
+room = "2.6.1"
+sqlcipher = "4.6.1"
+biometric = "1.1.0"
+json = "20240303"
+fragment = "1.8.5"
+junit = "4.13.2"
+
+# ── 后续里程碑引入（W6 之后）───────────────────────────────────
+# datastore = "1.1.1"
+# work = "2.9.1"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
+# 数据层：Room + SQLCipher
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
+
+# 生物识别解锁（W6）。用 1.1.0 稳定版而不是 1.2.0-alpha：
+# 后者对 androidx.fragment 有 alpha 依赖，会把整个依赖图带到 alpha 上。
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+
+# 显式声明 fragment：BiometricPrompt 的构造参数要求 FragmentActivity，
+# 而 MainActivity 现在继承它。biometric 会传递依赖 fragment，但传递依赖的
+# scope 不受我们控制（哪天上游改成 implementation 就编译不过），自己写明更稳。
+androidx-fragment = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragment" }
+
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+# 只给单元测试用：Android 的 org.json 在 JVM 单测里是 stub（方法体全空），
+# 不引入真实实现的话，备份编解码的测试全部拿到 null 且不报错。
+json = { group = "org.json", name = "json", version.ref = "json" }
+
+# ── 后续里程碑引入 ────────────────────────────────────────────
+# androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+# androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

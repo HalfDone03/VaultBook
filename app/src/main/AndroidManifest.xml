@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 待确认捕获通知；Android 13+ 运行时申请 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      刻意不申请的两个权限：
+
+      · USE_BIOMETRIC —— 指纹解锁在 v1.7.0 随"去主密码"一起删了，权限没跟着删，
+        属于残留。用户装包时会看到一条用不上的高危权限，只会增加疑虑。
+      · INTERNET —— 全项目没有任何网络代码（跳浏览器用的是 Intent，不需要它）。
+        不声明它，"不联网、不上传"就从一句承诺变成系统设置里可核验的事实。
+        将来若真做密码泄露检测（HIBP k-Anonymity），再单独加回来并写清楚用途。
+    -->
+
+
+    <application
+        android:name=".App"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.VaultBook"
+        android:usesCleartextTraffic="false">
+
+        <!-- label 与 application 相同，不需要重复声明（lint: RedundantLabel） -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+                从别的应用「分享」文字进来。
+                用 text/plain 而不是 */*：分享菜单里只该出现文字类内容，
+                一张图片发到VaultBook没有任何意义，只会多一个误点的入口。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!--
+                桌面长按快捷方式的落点（见 res/xml/shortcuts.xml）。
+                用私有 scheme 而不是显式 targetClass：shortcuts.xml 里写不了
+                ${applicationId}，硬编码包名会让 debug 变体点了没反应。
+
+                `data` 只声明 scheme，host 在代码里判断（MainActivity.handleIntent）。
+                这么写有两个原因：一是 lint 的 IntentFilterUniqueDataAttributes
+                要求一个 data 标签只放一个属性（多个 host 会组合成奇怪的马赛克匹配）；
+                二是以后加快捷方式只要改 handleIntent 一行，不用再碰清单文件。
+                私有 scheme 没有对外暴露面，放开 host 不增加风险。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="vaultbook" />
+            </intent-filter>
+        </activity>
+
+        <!-- 桌面图标长按后的两个快捷方式 -->
+        <meta-data
+            android:name="android.app.shortcuts"
+            android:resource="@xml/shortcuts" />
+
+        <!--
+            桌面小组件。
+            exported=true 是必须的：APPWIDGET_UPDATE 由系统（另一个进程）投递，
+            关掉就收不到了。
+            ACTION_REFRESH 是应用内部用的广播 —— 主进程数据一变就发一次，
+            让桌面上那三条跟着更新。它不收外部参数，被别的应用触发也只是
+            重读一遍本地缓存重绘，无副作用。
+        -->
+        <receiver
+            android:name=".widget.VaultWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.yg.vaultbook.widget.REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_vault_info" />
+        </receiver>
+
+        <!-- ① 系统级自动填充：负责「填」，并在返回 SaveInfo 后收到保存回调 -->
+        <service
+            android:name=".autofill.VaultAutofillService"
+            android:exported="true"
+            android:label="@string/autofill_label"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
+        <!-- ② 无障碍增强捕获：负责「抓」（需用户手动在系统设置开启） -->
+        <service
+            android:name=".accessibility.CaptureAccessibilityService"
+            android:exported="true"
+            android:label="@string/a11y_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+    </application>
+</manifest>

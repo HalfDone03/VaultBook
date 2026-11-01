@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面长按图标弹出的快捷方式。
+
+  为什么用 `VIEW` + 私有 scheme，而不是显式 `targetClass`：
+  shortcuts.xml 里没法写 `${applicationId}` 占位符，debug 版的
+  applicationId 是 `com.yg.vaultbook.debug`，硬编码 `com.yg.vaultbook`
+  会让 debug 包上的快捷方式点了没反应（或打开 release 版）。
+  用 `vaultbook://` 这个 scheme 让系统按 intent-filter 去解析，
+  两个变体各自解析到自己身上。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new"
+        android:shortcutId="new_entry"
+        android:shortcutLongLabel="@string/shortcut_new_long"
+        android:shortcutShortLabel="@string/shortcut_new_short">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="vaultbook://new" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_generator"
+        android:shortcutId="generator"
+        android:shortcutLongLabel="@string/shortcut_generator_long"
+        android:shortcutShortLabel="@string/shortcut_generator_short">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="vaultbook://generator" />
+    </shortcut>
+
+</shortcuts>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VaultBook</string>
+
+    <string name="autofill_label">VaultBook</string>
+
+    <string name="a11y_label">VaultBook · 增强捕获</string>
+    <string name="a11y_description">在浏览器和 App 的登录页读取输入框内容，识别出「用户名 + 密码」后提示你保存到本机保险库。所有数据仅在本机加密存储，不联网、不上传；关闭此服务后应用其余功能照常可用。</string>
+
+    <!-- 桌面长按图标弹出的快捷方式 -->
+    <string name="shortcut_new_short">新建</string>
+    <string name="shortcut_new_long">新建一条记录</string>
+    <string name="shortcut_generator_short">生成密码</string>
+    <string name="shortcut_generator_long">生成一个强密码</string>
+
+    <!-- 桌面小组件 -->
+    <string name="widget_title">VaultBook</string>
+    <string name="widget_new">＋ 新建</string>
+    <string name="widget_empty">还没有记录\n点这里打开 VaultBook</string>
+    <string name="widget_desc">最常用的几条账号。点某一条直接复制它的密码。</string>
+</resources>

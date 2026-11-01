@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  深色模式主题。
+  parent 换成非 Light 的 DeviceDefault：万一 Compose 还没画第一帧就弹出系统控件
+  （权限对话框、输入法候选栏等），它们会跟着深色，不会突兀地白一下。
+-->
+<resources>
+    <style name="Theme.VaultBook" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/vault_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

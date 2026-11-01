@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自动填充服务声明。
+  settingsActivity 指向应用内的自动填充引导页；骨架阶段先复用 MainActivity，
+  实现 P12 页面后改成 com.yg.vaultbook.ui.settings.AutofillGuideActivity。
+-->
+<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.yg.vaultbook.MainActivity" />

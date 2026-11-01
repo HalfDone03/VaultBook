@@ -1,0 +1,16 @@
+# 统一换行符，避免 Windows / macOS / Linux 检出差异
+* text=auto eol=lf
+
+# 脚本在 Windows 上要能直接双击运行
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.apk binary
+*.jar binary
+*.so binary
+*.vbc binary

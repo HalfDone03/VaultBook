@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面小组件的元数据。
+
+  `updatePeriodMillis="0"`：不按时间自动刷新。系统允许的最小周期是 30 分钟，
+  那个粒度对"刚新建了一条记录"毫无意义，反而会在每半小时拉起一次进程。
+  改为**由应用主动刷新**（VaultApp 里数据一变就调 VaultWidgetProvider.refresh）。
+
+  `minWidth=250dp / minHeight=110dp` 落在多数启动器的 4×2 单元格里；
+  `resizeMode` 允许用户自己拉大，但布局是固定三行，拉大只会多出空白 ——
+  这是刻意的：宁可留白，也不做一套随高度变化的复杂逻辑。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:description="@string/widget_desc"
+    android:initialLayout="@layout/widget_vault"
+    android:minHeight="110dp"
+    android:minWidth="250dp"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="2"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    tools:targetApi="31" />

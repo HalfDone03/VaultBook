@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用主题。
+
+  为什么需要它：Activity 启动到 Compose 画第一帧之间有几帧是系统画的，
+  画的就是 windowBackground。原来直接用 Theme.DeviceDefault.Light.NoActionBar，
+  那个主题的 windowBackground 是纯白 —— 深色模式下会先闪一下白屏。
+
+  parent 仍然是 DeviceDefault.Light.NoActionBar：Compose 接管了全部界面，
+  这里只需要它提供"没有 ActionBar、没有窗口装饰"的骨架。
+-->
+<resources>
+    <!-- parent 必须写全 @android:style/...：平台主题不在本项目命名空间里，
+         只写名字会被当成"本项目要定义一个同名父样式"，链接期直接报找不到。 -->
+    <style name="Theme.VaultBook" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/vault_window_background</item>
+        <!-- 冷启动时不显示系统给的白色 splash 底，交给 windowBackground -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

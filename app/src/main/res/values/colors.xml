@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  启动窗口底色。
+  用途只有一个：冷启动到第一帧 Compose 之间那一小段，系统画的是窗口背景。
+  不设的话是纯白（DeviceDefault.Light 的默认值），深色模式用户会先看到一闪白。
+  这里的色值必须和 Theme.kt 的 background 保持一致，否则闪烁会变成"闪色块"。
+-->
+<resources>
+    <color name="vault_window_background">#ECF1ED</color>
+</resources>

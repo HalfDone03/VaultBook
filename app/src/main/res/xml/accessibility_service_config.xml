@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  增强捕获服务配置。
+  注意：
+  · flagIncludeNotImportantViews 受包可见性限制，部分 App 节点读不到
+  · notificationTimeout 100ms + 应用层 250ms 去抖，二者叠加避免频繁全树遍历
+  · canPerformGestures 保持 false：本应用只读不模拟点击，降低权限敏感度
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeViewTextChanged|typeViewFocused|typeViewClicked|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="false"
+    android:notificationTimeout="100"
+    android:description="@string/a11y_description" />

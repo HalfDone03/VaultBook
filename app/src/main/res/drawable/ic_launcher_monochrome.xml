@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+      「主题图标」用的单色版本（Android 13+ 的 monochrome 层）。
+
+      规则：系统会**丢掉颜色、只保留 alpha 遮罩**，再用壁纸主题色重新上色。
+      所以这里画的是猫头剪影 —— 两只耳朵 + 圆脸，眼睛用 evenOdd 挖空，
+      缩到 24dp 时仍能看出这是张脸，而不是一坨色块。
+
+      形状与彩色图标里的猫对齐（脸中心在 viewport 的 (54,64)），
+      这样切换主题图标时，位置不会突然跳。
+    -->
+
+    <!-- 左耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M31,52 L37,23 L55,41 Z" />
+
+    <!-- 右耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M77,52 L71,23 L53,41 Z" />
+
+    <!-- 圆脸 + 两只眼（evenOdd 让眼睛变成镂空） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54,64 m-26,0 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0
+                          M45,59 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0
+                          M63,59 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+</vector>
