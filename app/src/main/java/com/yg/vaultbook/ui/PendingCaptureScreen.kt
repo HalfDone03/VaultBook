@@ -84,25 +84,12 @@ fun PendingCaptureScreen(gateway: VaultGateway, onBack: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("待确认", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "共 ${items.size} 条",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.Close, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+            VaultTopBar(
+                title = "待确认",
+                subtitle = "共 ${items.size} 条",
+                onBack = onBack,
+                backIcon = Icons.Filled.Close,
+                backLabel = "关闭"
             )
         }
     ) { padding ->
@@ -187,8 +174,9 @@ private fun CaptureRow(
     val strong = item.confidence >= CaptureConfidence.STRONG_THRESHOLD
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {

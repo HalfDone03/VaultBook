@@ -490,21 +490,17 @@ fun EntryEditScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (isEdit) "编辑条目" else "新建条目") },
-                navigationIcon = {
-                    IconButton(onClick = onDone, enabled = !busy) {
-                        Icon(Icons.Filled.Close, contentDescription = "关闭")
-                    }
-                },
+            VaultTopBar(
+                title = if (isEdit) "编辑条目" else "新建条目",
+                subtitle = "账号可以空着，只存平台和密码也行",
+                onBack = onDone,
+                backIcon = Icons.Filled.Close,
+                backLabel = "关闭",
                 actions = {
                     TextButton(onClick = { commit() }, enabled = !busy && !loading) {
-                        Text("保存")
+                        Text("保存", style = MaterialTheme.typography.labelLarge)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background

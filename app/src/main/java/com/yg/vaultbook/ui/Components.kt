@@ -3,9 +3,31 @@ package com.yg.vaultbook.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,8 +41,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -184,3 +208,207 @@ internal fun EmptyArtwork(modifier: Modifier = Modifier, size: Dp = 132.dp) {
         )
     }
 }
+
+/**
+ * 统一顶栏。
+ *
+ * 不用 M3 的 TopAppBar 是因为它把标题压成 22sp、返回键是裸图标，跟首页的深绿头图放一起像两套设计。
+ * 这里统一成「圆形玻璃返回键 + headlineSmall 标题 + labelMedium 副标题」，
+ * 底色与页面同为 background、不画分隔线，靠字号和留白分层。
+ */
+@Composable
+internal fun VaultTopBar(
+    title: String,
+    subtitle: String? = null,
+    onBack: (() -> Unit)? = null,
+    backIcon: ImageVector = Icons.AutoMirrored.Filled.ArrowBack,
+    backLabel: String = "返回",
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (onBack != null) {
+            TopBarButton(icon = backIcon, description = backLabel, onClick = onBack)
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        actions()
+    }
+}
+
+/** 顶栏上的圆形按钮，跟提示条的玻璃质感一致。 */
+@Composable
+internal fun RowScope.TopBarButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    enabled: Boolean = true,
+    badge: Int = 0
+) {
+    val source = remember { MutableInteractionSource() }
+    val backdrop = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.60f else 0.26f)
+    val button: @Composable () -> Unit = {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(backdrop)
+                .pressScale(source, pressedScale = 0.92f)
+                .clickable(
+                    interactionSource = source,
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                tint = if (enabled) tint else tint.copy(alpha = 0.38f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+    if (badge > 0) {
+        BadgedBox(badge = { Badge { Text(if (badge > 99) "99+" else "$badge") } }) { button() }
+    } else {
+        button()
+    }
+}
+
+/**
+ * 小标题：设置、备份这类页面用它分堆。
+ *
+ * 字号小、字距拉开一点，读起来像"标签"而不是"标题"，
+ * 这样它下面的卡片才是视觉主体，标题不去跟内容抢注意力。
+ */
+@Composable
+internal fun VaultSectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 1.2.sp,
+        modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 2.dp)
+    )
+}
+
+/** 统一的白卡片：20dp 圆角、1dp 阴影。三个页面之前各写各的圆角，这里收口。 */
+@Composable
+internal fun VaultCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(content = content)
+    }
+}
+
+/** 卡片内的分隔线，左侧留出图标宽度，视觉上从文字起始处开始。 */
+@Composable
+internal fun VaultRowDivider(startPadding: Dp = 66.dp) {
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+        modifier = Modifier.padding(start = startPadding)
+    )
+}
+
+/**
+ * 卡片内的一行入口：圆角色块图标 + 标题 + 说明 + 右箭头。
+ *
+ * 图标底色用 accent 的 13% 透明：够淡，不抢标题；同色图标压在上面又有辨识度。
+ */
+@Composable
+internal fun VaultActionRow(
+    icon: ImageVector,
+    accent: Color,
+    title: String,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(accent.copy(alpha = if (enabled) 0.13f else 0.06f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (enabled) accent else accent.copy(alpha = 0.40f),
+                modifier = Modifier.size(19.dp)
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+/**
+ * 头图用的深绿两端色。
+ *
+ * 写死而不是取主题色：深色主题下 primary 是亮薄荷 `#4ADE9B`，压白字完全糊；
+ * 头图这种"大面积色块 + 白字"的地方需要固定的深色端。
+ */
+internal val HeroTop = Color(0xFF11825C)
+internal val HeroBottom = Color(0xFF053726)

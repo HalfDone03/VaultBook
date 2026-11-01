@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -83,33 +84,19 @@ fun AuditLogScreen(gateway: VaultGateway, onBack: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("审计日志", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "共 ${logs.size} 条",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            VaultTopBar(
+                title = "审计日志",
+                subtitle = "共 ${logs.size} 条",
+                onBack = onBack,
                 actions = {
-                    IconButton(
-                        onClick = { confirmClear = true },
-                        enabled = logs.isNotEmpty() && repo != null
-                    ) {
-                        Icon(Icons.Filled.Delete, contentDescription = "清空日志")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                    TopBarButton(
+                        icon = Icons.Filled.Delete,
+                        description = "清空日志",
+                        enabled = logs.isNotEmpty() && repo != null,
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = { confirmClear = true }
+                    )
+                }
             )
         }
     ) { padding ->
@@ -196,9 +183,11 @@ fun AuditLogScreen(gateway: VaultGateway, onBack: () -> Unit) {
 private fun LogRow(log: AuditLogEntity) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
-        )
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -293,6 +294,7 @@ fun EntryListScreen(
         topBar = {
             ListHeader(
                 total = items.size,
+                categoryCount = categories.size,
                 pendingCount = pendingCount,
                 onOpenPending = onOpenPending,
                 onOpenTrash = onOpenTrash,
@@ -341,51 +343,26 @@ fun EntryListScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        // 只在视线落点上做一层空气感：顶部主色极淡的光晕 + 右上角一点琥珀余晖。
-        // 不铺满整屏 —— 整屏染色会把卡片之间的层次压平，反而更糊。
-        val washColor = MaterialTheme.colorScheme.primary
-        val glowColor = MaterialTheme.colorScheme.secondary
-
+        // 原来这里铺了一层"顶部淡绿光晕 + 右上角琥珀余晖"。现在头图自己是深绿的，
+        // 再叠一层淡绿只会把白卡片的边界泡糊 —— 整屏只留一块色板，其余交给留白。
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .drawBehind {
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                washColor.copy(alpha = 0.10f),
-                                washColor.copy(alpha = 0.03f),
-                                Color.Transparent
-                            ),
-                            startY = 0f,
-                            endY = 240.dp.toPx()
-                        )
-                    )
-                    val radius = 420.dp.toPx()
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                glowColor.copy(alpha = 0.07f),
-                                Color.Transparent
-                            ),
-                            center = Offset(size.width, 0f),
-                            radius = radius
-                        ),
-                        radius = radius,
-                        center = Offset(size.width, 0f)
-                    )
-                }
         ) {
+            // 搜索框往上挪 18dp，压在头图下缘上：这是让"色板 + 白卡片"两段
+            // 接得住的唯一做法，否则中间一道水平分界线会把页面切成两半。
             SearchField(
                 query = query,
                 onQueryChange = { query = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
+                    .offset(y = (-18).dp)
+                    .shadow(18.dp, RoundedCornerShape(16.dp))
             )
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(2.dp))
 
             // 16 个分类平铺放不下，横向滚一条。只显示"有条目的"分类 ——
             // 空分类点进去是一条空列表，纯属浪费一次点击。
@@ -548,6 +525,7 @@ private fun ActionRow(
 @Composable
 private fun ListHeader(
     total: Int,
+    categoryCount: Int,
     pendingCount: Int,
     onOpenPending: () -> Unit,
     onOpenTrash: () -> Unit,
@@ -557,33 +535,36 @@ private fun ListHeader(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
+    // 品牌区做成一块实心渐变色板。
+    // 白底上一行大字加三个灰圆点，怎么调都像设置页的头；一块深绿板子才是这个 app 的脸，
+    // 也给了下面的白卡片一个"浮在什么上面"的参照。
     Column(
         Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp))
+            .background(Brush.verticalGradient(listOf(HeroTop, HeroBottom)))
             .statusBarsPadding()
-            .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 4.dp)
+            .padding(start = 22.dp, end = 10.dp, top = 12.dp, bottom = 30.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
                     text = "VaultBook",
                     style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = Color.White
                 )
-                Spacer(Modifier.height(5.dp))
-                // 计数从一行灰字改成小胶囊：它是"状态"，不是副标题。
-                // 灰小字挂在 34sp 标题下面，怎么调间距都像半句话被截断了。
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        text = if (total == 0) "还没有记录" else "共 $total 条",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
-                    )
-                }
+                Spacer(Modifier.height(6.dp))
+                // 计数是"状态"，用一行透明小字跟在标题下，不再单独做胶囊 ——
+                // 板上已经有色了，再加一块浅绿胶囊只是往画面里塞第二个色块。
+                Text(
+                    text = if (total == 0) {
+                        "还没有记录"
+                    } else {
+                        "共 $total 条 · $categoryCount 个分类"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.76f)
+                )
             }
 
             Spacer(Modifier.width(4.dp))
@@ -594,6 +575,7 @@ private fun ListHeader(
                 icon = Icons.Filled.Notifications,
                 description = if (pendingCount > 0) "待确认 $pendingCount 条" else "待确认",
                 badge = pendingCount,
+                onDark = true,
                 onClick = onOpenPending
             )
 
@@ -601,6 +583,7 @@ private fun ListHeader(
                 HeaderAction(
                     icon = Icons.Filled.MoreVert,
                     description = "更多",
+                    onDark = true,
                     onClick = { menuOpen = true }
                 )
                 androidx.compose.material3.DropdownMenu(
@@ -626,6 +609,7 @@ private fun ListHeader(
             HeaderAction(
                 icon = Icons.Filled.Settings,
                 description = "设置",
+                onDark = true,
                 onClick = onOpenSettings
             )
         }
@@ -643,19 +627,27 @@ private fun HeaderAction(
     icon: ImageVector,
     description: String,
     onClick: () -> Unit,
-    badge: Int = 0
+    badge: Int = 0,
+    onDark: Boolean = false
 ) {
     val source = remember { MutableInteractionSource() }
+    // 两套底色：普通页面上是浅灰玻璃球，深绿头图上是白色玻璃球。
+    // 同一个组件两种用法，比在调用处各写一遍 Box 更不容易漂移。
+    val backdrop = if (onDark) {
+        Color.White.copy(alpha = 0.16f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f)
+    }
     Box(
         Modifier
-            .size(40.dp)
+            .size(42.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f))
+            .background(backdrop)
             .pressScale(source, pressedScale = 0.92f)
             .clickable(interactionSource = source, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        val tint = MaterialTheme.colorScheme.onSurfaceVariant
+        val tint = if (onDark) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
         if (badge > 0) {
             BadgedBox(badge = { Badge { Text("$badge") } }) {
                 Icon(
@@ -728,7 +720,7 @@ private fun SearchField(
         singleLine = true,
         // 圆角矩形而不是胶囊：胶囊让搜索框看起来像一个"按钮"，
         // 而它其实是这页唯一的输入框，方形一点更像输入框。
-        shape = RoundedCornerShape(15.dp),
+        shape = RoundedCornerShape(16.dp),
         textStyle = MaterialTheme.typography.bodyMedium,
         colors = TextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -745,15 +737,15 @@ private fun SearchField(
             // 圆角 + 描边已经足够把它和页面其他块区分开。
             // 描边走 Modifier 而不是 TextField 的 indicator：
             // indicator 只在底部画一条线，这里要的是整圈。
-            .clip(RoundedCornerShape(15.dp))
+            .clip(RoundedCornerShape(16.dp))
             .border(
                 width = if (focused.value) 1.5.dp else 1.dp,
                 color = if (focused.value) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
                 } else {
-                    MaterialTheme.colorScheme.outlineVariant
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.70f)
                 },
-                shape = RoundedCornerShape(15.dp)
+                shape = RoundedCornerShape(16.dp)
             )
             .onFocusChanged { focused.value = it.isFocused }
     )
@@ -786,17 +778,14 @@ private fun EntryRow(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        // 2dp + 一圈极淡的边：只靠阴影，深色模式下卡片会完全融进背景
-        // （黑底黑卡，阴影是不可见的），描边是让边界在任何主题下都成立。
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-        )
+        // 阴影从 2dp 收到 1dp、描边整个去掉：三个"边界信号"（阴影、描边、色条）
+        // 同时出现时，卡片看着像贴了一层贴纸。留一层最轻的阴影，边界交给
+        // 白卡片和浅绿背景之间的明度差。
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             Modifier
@@ -1114,6 +1103,10 @@ private fun computeListDerived(items: List<EntrySummary>): ListDerived {
 /** 小组件缓存刷新的去抖窗口：比一次批量写库的间隔长，短于用户能感知"桌面没更新"的阈值。 */
 private const val WIDGET_REFRESH_DEBOUNCE_MS = 400L
 
+// 头图渐变：从偏亮的翡翠压到墨绿。
+// 这两个色写死而不是取主题色 —— 浅色主题的 primary 是 #0B6E4F，
+// 深色主题的 primary 是亮薄荷 #4ADE9B，白字压在亮薄荷上读不清；
+// 头图在两种主题下都用同一块深绿，白字对比度才稳定。
 private data class QuickFilterModel(
     val filter: QuickFilter,
     val label: String,

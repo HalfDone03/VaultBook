@@ -1,5 +1,6 @@
 package com.yg.vaultbook.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,13 +12,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,6 +48,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yg.vaultbook.data.VaultGateway
@@ -142,25 +151,10 @@ fun CategoryManageScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("分类", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            text = "${items.size} 个 · 拖动顺序用箭头调整",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+            VaultTopBar(
+                title = "分类",
+                subtitle = "${items.size} 个 · 拖动顺序用箭头调整",
+                onBack = onBack
             )
         },
         floatingActionButton = {
@@ -308,15 +302,32 @@ private fun CategoryRow(
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val accent = accentOf(category.id.ifEmpty { category.name })
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
-        )
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(accent.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = category.name.trim().take(1).ifEmpty { "·" },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accent
+                    )
+                }
+                Spacer(Modifier.width(11.dp))
                 Column(
                     Modifier
                         .weight(1f)
@@ -326,46 +337,121 @@ private fun CategoryRow(
                         Text(
                             text = category.name,
                             style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (category.builtin) {
                             Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "内置",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "内置",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = "$entryCount 条",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TextButton(onClick = onMoveUp, enabled = canMoveUp) { Text("↑") }
-                TextButton(onClick = onMoveDown, enabled = canMoveDown) { Text("↓") }
+                MoveButton(
+                    icon = Icons.Filled.KeyboardArrowUp,
+                    description = "上移",
+                    enabled = canMoveUp,
+                    onClick = onMoveUp
+                )
+                Spacer(Modifier.width(4.dp))
+                MoveButton(
+                    icon = Icons.Filled.KeyboardArrowDown,
+                    description = "下移",
+                    enabled = canMoveDown,
+                    onClick = onMoveDown
+                )
             }
-            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            Spacer(Modifier.height(8.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
-                TextButton(onClick = onRename) { Text("改名") }
-                TextButton(onClick = onDelete, enabled = !category.builtin) {
-                    Text(
-                        text = if (category.builtin) "内置不可删" else "删除",
-                        color = if (category.builtin) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
-                    )
-                }
+                CategoryAction(
+                    text = "改名",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onRename
+                )
+                Spacer(Modifier.width(6.dp))
+                CategoryAction(
+                    text = if (category.builtin) "不可删" else "删除",
+                    color = if (category.builtin) {
+                        MaterialTheme.colorScheme.outline
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    enabled = !category.builtin,
+                    onClick = onDelete
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun MoveButton(
+    icon: ImageVector,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = if (enabled) 0.70f else 0.28f
+                )
+            )
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                alpha = if (enabled) 1f else 0.38f
+            ),
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+
+@Composable
+private fun CategoryAction(
+    text: String,
+    color: Color,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = if (enabled) 0.10f else 0.05f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = color.copy(alpha = if (enabled) 1f else 0.55f)
+        )
     }
 }
 

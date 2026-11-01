@@ -1,6 +1,8 @@
 package com.yg.vaultbook.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,7 +10,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,6 +42,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -74,16 +82,10 @@ fun PasswordGeneratorScreen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("生成密码", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+            VaultTopBar(
+                title = "生成密码",
+                subtitle = "字符集与长度可调",
+                onBack = onBack
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -95,29 +97,42 @@ fun PasswordGeneratorScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            // 密码本身是这页的主角，给它一条深绿面板：白字等宽，跟列表页头图
+            // 同一套深绿。之前是一张白卡，密码和下面的说明挤在一起，读不出主次。
+            val dotColor = when {
+                score <= 1 -> Color(0xFFFF9E8F)
+                score == 2 -> Color(0xFFF3C46B)
+                else -> Color(0xFF7BE8B4)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Brush.verticalGradient(listOf(HeroTop, HeroBottom)))
+                    .padding(horizontal = 18.dp, vertical = 20.dp)
             ) {
-                Column(Modifier.padding(16.dp)) {
+                Column {
                     Text(
                         text = password,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontFamily = FontFamily.Monospace
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White
                     )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = "约 ${bits.roundToInt()} bit · ${PasswordStrength.labelOf(score)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            score <= 1 -> MaterialTheme.colorScheme.error
-                            score == 2 -> MaterialTheme.colorScheme.secondary
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(dotColor)
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            text = "约 ${bits.roundToInt()} bit · ${PasswordStrength.labelOf(score)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.78f)
+                        )
+                    }
                 }
             }
 
@@ -177,10 +192,11 @@ fun PasswordGeneratorScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(20.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
-                )
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(

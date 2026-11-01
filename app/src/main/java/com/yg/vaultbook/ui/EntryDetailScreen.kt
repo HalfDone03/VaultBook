@@ -269,28 +269,26 @@ fun EntryDetailScreen(
             }
         },
         topBar = {
-            TopAppBar(
-                title = { Text("详情", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            VaultTopBar(
+                title = "详情",
+                subtitle = summary?.let { if (it.title.isBlank()) "未命名" else it.title },
+                onBack = onBack,
                 actions = {
-                    IconButton(onClick = onEdit, enabled = !loading && !missing) {
-                        Icon(Icons.Filled.Edit, contentDescription = "编辑")
-                    }
-                    IconButton(onClick = { delete() }, enabled = !loading && !missing && !busy) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "删除",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                    TopBarButton(
+                        icon = Icons.Filled.Edit,
+                        description = "编辑",
+                        enabled = !loading && !missing,
+                        onClick = onEdit
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TopBarButton(
+                        icon = Icons.Filled.Delete,
+                        description = "删除",
+                        enabled = !loading && !missing && !busy,
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = { delete() }
+                    )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -658,8 +656,35 @@ private fun DetailRow(
             )
         }
         onCopy?.let {
-            TextButton(onClick = it) { Text("复制") }
+            CopyGhost(onClick = it)
         }
+    }
+}
+
+/**
+ * 复制按钮。
+ *
+ * 原来用 TextButton，主色文字贴在白卡片上和正文抢注意力；
+ * 改成淡底小胶囊，边界收在浅色里，视线还是落在左边的值上。
+ */
+@Composable
+private fun CopyGhost(
+    text: String = "复制",
+    color: Color = MaterialTheme.colorScheme.primary,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = 0.10f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = color
+        )
     }
 }
 
@@ -710,10 +735,13 @@ private fun PasswordRow(
             }
         }
         if (hasPassword) {
-            TextButton(onClick = onToggle) {
-                Text(if (plain != null) "隐藏" else "显示")
-            }
-            TextButton(onClick = onCopy) { Text("复制") }
+            CopyGhost(
+                text = if (plain != null) "隐藏" else "显示",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onToggle
+            )
+            Spacer(Modifier.width(6.dp))
+            CopyGhost(onClick = onCopy)
         }
     }
 }

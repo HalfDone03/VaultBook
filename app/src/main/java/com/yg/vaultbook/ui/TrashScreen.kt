@@ -1,5 +1,7 @@
 package com.yg.vaultbook.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +40,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yg.vaultbook.data.VaultGateway
@@ -122,22 +127,10 @@ fun TrashScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("回收站", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            text = "共 ${items.size} 条",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            VaultTopBar(
+                title = "回收站",
+                subtitle = "共 ${items.size} 条",
+                onBack = onBack,
                 actions = {
                     if (items.isNotEmpty()) {
                         TextButton(
@@ -147,10 +140,7 @@ fun TrashScreen(
                             Text("清空", color = MaterialTheme.colorScheme.error)
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -167,12 +157,14 @@ fun TrashScreen(
 
                 items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        EmptyArtwork(size = 108.dp)
+                        Spacer(Modifier.height(14.dp))
                         Text(
                             text = "回收站是空的",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                         Text(
                             text = "删除的条目会在这里保留 30 天",
                             style = MaterialTheme.typography.bodyMedium,
@@ -244,47 +236,77 @@ private sealed interface PurgeTarget {
 
 @Composable
 private fun TrashRow(entry: EntrySummary, onRestore: () -> Unit, onPurge: () -> Unit) {
+    val seed = entry.hostNorm ?: entry.title
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
-        )
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(
-                text = entry.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            val subtitle = listOfNotNull(entry.username, entry.hostNorm).joinToString(" · ")
-            if (subtitle.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            EntryAvatar(title = entry.title, seed = seed, size = 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = entry.title,
+                    style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = remainingText(entry.deletedAt),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                TextButton(onClick = onRestore) { Text("恢复") }
-                TextButton(onClick = onPurge) {
-                    Text("彻底删除", color = MaterialTheme.colorScheme.error)
+                val subtitle = listOfNotNull(entry.username, entry.hostNorm).joinToString(" · ")
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = remainingText(entry.deletedAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
+            Spacer(Modifier.width(8.dp))
+            PillAction("恢复", accentOf(seed), onRestore)
+            Spacer(Modifier.width(6.dp))
+            PillAction("删除", MaterialTheme.colorScheme.error, onPurge)
         }
+    }
+}
+
+/**
+ * 卡片右侧的小胶囊按钮。
+ *
+ * 回收站里每条要放"恢复"和"删除"两个动作，用 TextButton 会各占 64dp 宽，
+ * 挤得标题只剩一半；改成贴边的胶囊，宽度跟着字走，标题能多显示几个字。
+ */
+@Composable
+private fun PillAction(
+    text: String,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(11.dp))
+            .background(color.copy(alpha = 0.11f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 7.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = color
+        )
     }
 }
 

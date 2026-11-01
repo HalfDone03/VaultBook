@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -197,16 +201,10 @@ fun BackupScreen(gateway: VaultGateway, onBack: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("备份", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+            VaultTopBar(
+                title = "备份",
+                subtitle = "导出加密文件、导入表格",
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -233,9 +231,11 @@ fun BackupScreen(gateway: VaultGateway, onBack: () -> Unit) {
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
-                )
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("备份文件里有什么", style = MaterialTheme.typography.bodyLarge)
@@ -256,43 +256,50 @@ fun BackupScreen(gateway: VaultGateway, onBack: () -> Unit) {
                 }
             }
 
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
-                onClick = {
-                    error = null
-                    message = null
-                    exportPwd = ""
-                    exportPwd2 = ""
-                    showExportDialog = true
-                }
-            ) {
-                Text("导出备份")
-            }
-
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
-                onClick = {
-                    error = null
-                    message = null
-                    importInfo = null
-                    openLauncher.launch(arrayOf("*/*"))
-                }
-            ) {
-                Text("导入备份")
-            }
-
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
-                onClick = {
-                    error = null
-                    message = null
-                    csvLauncher.launch(arrayOf("*/*"))
-                }
-            ) {
-                Text("从表格导入（CSV）")
+            // 三个按钮竖着堆像份表单。改成卡片里的三行入口，
+            // 每行一个色块图标，跟设置页同一套语言。
+            VaultCard {
+                VaultActionRow(
+                    icon = Icons.Filled.Share,
+                    accent = accentOf("backup"),
+                    title = "导出备份",
+                    subtitle = "设一个备份密码，存成加密文件",
+                    enabled = !busy,
+                    onClick = {
+                        error = null
+                        message = null
+                        exportPwd = ""
+                        exportPwd2 = ""
+                        showExportDialog = true
+                    }
+                )
+                VaultRowDivider()
+                VaultActionRow(
+                    icon = Icons.Filled.Refresh,
+                    accent = accentOf("restore"),
+                    title = "导入备份",
+                    subtitle = "从加密文件恢复",
+                    enabled = !busy,
+                    onClick = {
+                        error = null
+                        message = null
+                        importInfo = null
+                        openLauncher.launch(arrayOf("*/*"))
+                    }
+                )
+                VaultRowDivider()
+                VaultActionRow(
+                    icon = Icons.Filled.Menu,
+                    accent = accentOf("csv"),
+                    title = "从表格导入",
+                    subtitle = "Excel 另存的 CSV、记事本文本",
+                    enabled = !busy,
+                    onClick = {
+                        error = null
+                        message = null
+                        csvLauncher.launch(arrayOf("*/*"))
+                    }
+                )
             }
 
             Text(
@@ -333,9 +340,11 @@ fun BackupScreen(gateway: VaultGateway, onBack: () -> Unit) {
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
-                )
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("建议", style = MaterialTheme.typography.bodyLarge)

@@ -7,10 +7,10 @@
 | 项 | 内容 |
 |---|---|
 | 应用名 / 项目名 | VaultBook |
-| 版本 | 1.0（versionCode 100） |
+| 版本 | 1.1（versionCode 110） |
 | 包名 | `com.yg.vaultbook` |
 | 系统 | Android 8.0（API 26）～ API 35 |
-| 安装包 | `dist/VaultBook-1.0.apk`，7.06 MB，只含 `arm64-v8a` |
+| 安装包 | `dist/VaultBook-1.1.apk`，7.06 MB，只含 `arm64-v8a` |
 
 ---
 
@@ -63,7 +63,9 @@
 ### 外观
 
 - Material 3，深浅两套配色，跟随系统深色模式；冷启动窗口底色也跟随，不闪白
-- 列表顶部一层淡绿渐变、右上一点琥珀光
+- 列表页顶部是一块深绿渐变头图（铺到状态栏），搜索框压在它下缘
+- 每条记录按网址/包名/标题哈希出一个配色，用在头像、左侧竖条和复制块上
+- 次级页统一顶栏（圆形玻璃返回键 + 大字标题 + 小字副标题），卡片统一 20dp 圆角
 - 支持 Android 15 的 edge-to-edge（状态栏/导航栏不走内容）
 
 ---
@@ -73,7 +75,7 @@
 从 [Releases](https://github.com/HalfDone03/VaultBook/releases) 下载 APK，或本地构建后用 adb：
 
 ```bash
-adb install -r dist/VaultBook-1.0.apk
+adb install -r dist/VaultBook-1.1.apk
 ```
 
 或双击 `install-apk.cmd`（自动找 adb 与最新安装包），也可以把 APK 拷到手机上点开装。
