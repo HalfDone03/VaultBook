@@ -28,3 +28,6 @@ Thumbs.db
 
 # ---------- Room schema 澶囦唤 ----------
 app/schemas/*.json.bak
+
+# 本地临时脚本（GitHub 中转等）
+.tmp/
