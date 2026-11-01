@@ -212,8 +212,8 @@ internal fun EmptyArtwork(modifier: Modifier = Modifier, size: Dp = 132.dp) {
 /**
  * 统一顶栏。
  *
- * 不用 M3 的 TopAppBar 是因为它把标题压成 22sp、返回键是裸图标，跟首页的深绿头图放一起像两套设计。
- * 这里统一成「圆形玻璃返回键 + headlineSmall 标题 + labelMedium 副标题」，
+ * 不用 M3 的 TopAppBar 是因为它把标题压成 22sp、返回键是裸图标，跟首页不是一个语气。
+ * 这里统一成「圆形返回键 + headlineSmall 标题 + labelMedium 副标题」，
  * 底色与页面同为 background、不画分隔线，靠字号和留白分层。
  */
 @Composable
@@ -240,6 +240,7 @@ internal fun VaultTopBar(
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -259,7 +260,12 @@ internal fun VaultTopBar(
     }
 }
 
-/** 顶栏上的圆形按钮，跟提示条的玻璃质感一致。 */
+/**
+ * 顶栏上的圆形按钮。
+ *
+ * 白底 + 一圈极淡描边，和首页头部的三个入口是同一套 —— 两处各写一种
+ * （这里半透明灰球、那里白球）会让内页和首页看着像两个应用。
+ */
 @Composable
 internal fun RowScope.TopBarButton(
     icon: ImageVector,
@@ -270,13 +276,19 @@ internal fun RowScope.TopBarButton(
     badge: Int = 0
 ) {
     val source = remember { MutableInteractionSource() }
-    val backdrop = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.60f else 0.26f)
     val button: @Composable () -> Unit = {
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(40.dp)
                 .clip(CircleShape)
-                .background(backdrop)
+                .background(
+                    MaterialTheme.colorScheme.surface.copy(alpha = if (enabled) 0.92f else 0.55f)
+                )
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                    shape = CircleShape
+                )
                 .pressScale(source, pressedScale = 0.92f)
                 .clickable(
                     interactionSource = source,

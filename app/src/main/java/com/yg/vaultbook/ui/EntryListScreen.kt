@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -71,10 +70,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -82,6 +79,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yg.vaultbook.core.util.Normalize
 import com.yg.vaultbook.core.util.Pinyin
 import com.yg.vaultbook.data.VaultGateway
@@ -343,26 +341,25 @@ fun EntryListScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        // 原来这里铺了一层"顶部淡绿光晕 + 右上角琥珀余晖"。现在头图自己是深绿的，
-        // 再叠一层淡绿只会把白卡片的边界泡糊 —— 整屏只留一块色板，其余交给留白。
+        // 头图现在是一层很淡的渐隐，不是色板，搜索框不必再往上压 ——
+        // 负偏移 + 18dp 大阴影的组合会让白框像"贴"在色板边上，两个圆角还打架。
+        // 现在按正常文档流排在下面，白底 + 一圈细描边就够了。
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // 搜索框往上挪 18dp，压在头图下缘上：这是让"色板 + 白卡片"两段
-            // 接得住的唯一做法，否则中间一道水平分界线会把页面切成两半。
+            Spacer(Modifier.height(10.dp))
+
             SearchField(
                 query = query,
                 onQueryChange = { query = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .offset(y = (-18).dp)
-                    .shadow(18.dp, RoundedCornerShape(16.dp))
             )
 
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(8.dp))
 
             // 16 个分类平铺放不下，横向滚一条。只显示"有条目的"分类 ——
             // 空分类点进去是一条空列表，纯属浪费一次点击。
@@ -535,27 +532,51 @@ private fun ListHeader(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
-    // 品牌区做成一块实心渐变色板。
-    // 白底上一行大字加三个灰圆点，怎么调都像设置页的头；一块深绿板子才是这个 app 的脸，
-    // 也给了下面的白卡片一个"浮在什么上面"的参照。
+    // 顶栏不再是一整块深绿色板。
+    //
+    // 那块板铺到状态栏、上面压一行白色大字，整屏第一眼像启动页广告；浅色主题下
+    // 状态栏图标本来就是深色的，落在深绿上几乎看不见；搜索框还得靠负偏移去压住
+    // 它的下缘，否则中间那道水平分界线会把页面切成两半 —— 三处都是补丁。
+    // 现在换成浅底：一层很淡的主色自上而下渐隐，标题用墨色，品牌感交给标题左边
+    // 那颗小绿点，真正的颜色留给列表里的卡片和头像。
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp))
-            .background(Brush.verticalGradient(listOf(HeroTop, HeroBottom)))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.025f),
+                        Color.Transparent
+                    )
+                )
+            )
             .statusBarsPadding()
-            .padding(start = 22.dp, end = 10.dp, top = 12.dp, bottom = 30.dp)
+            .padding(start = 22.dp, end = 12.dp, top = 10.dp, bottom = 4.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = "VaultBook",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = Color.White
-                )
-                Spacer(Modifier.height(6.dp))
-                // 计数是"状态"，用一行透明小字跟在标题下，不再单独做胶囊 ——
-                // 板上已经有色了，再加一块浅绿胶囊只是往画面里塞第二个色块。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 一颗小球代替整块色板：品牌色还在，但不再压着画面。
+                    Box(
+                        Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        text = "VaultBook",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = (-0.5).sp,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(Modifier.height(3.dp))
+                // 计数是"状态"，用一行小字跟在标题下，不单独做胶囊。
                 Text(
                     text = if (total == 0) {
                         "还没有记录"
@@ -563,19 +584,20 @@ private fun ListHeader(
                         "共 $total 条 · $categoryCount 个分类"
                     },
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.76f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Spacer(Modifier.width(4.dp))
 
-            // 三个入口统一成 40dp 圆形轻底：原来是三个裸图标，
+            // 三个入口统一成圆形轻底：原来是三个裸图标，
             // 点在图标之间的空白处没有任何反馈，视觉上也不成组。
+            // 底色改成白色 + 一圈极淡描边：在浅绿渐隐底上，白球比半透明灰球干净，
+            // 也不会像"深绿板上的半透明白洞"那样显得空。
             HeaderAction(
                 icon = Icons.Filled.Notifications,
                 description = if (pendingCount > 0) "待确认 $pendingCount 条" else "待确认",
                 badge = pendingCount,
-                onDark = true,
                 onClick = onOpenPending
             )
 
@@ -583,7 +605,6 @@ private fun ListHeader(
                 HeaderAction(
                     icon = Icons.Filled.MoreVert,
                     description = "更多",
-                    onDark = true,
                     onClick = { menuOpen = true }
                 )
                 androidx.compose.material3.DropdownMenu(
@@ -609,7 +630,6 @@ private fun ListHeader(
             HeaderAction(
                 icon = Icons.Filled.Settings,
                 description = "设置",
-                onDark = true,
                 onClick = onOpenSettings
             )
         }
@@ -627,27 +647,24 @@ private fun HeaderAction(
     icon: ImageVector,
     description: String,
     onClick: () -> Unit,
-    badge: Int = 0,
-    onDark: Boolean = false
+    badge: Int = 0
 ) {
     val source = remember { MutableInteractionSource() }
-    // 两套底色：普通页面上是浅灰玻璃球，深绿头图上是白色玻璃球。
-    // 同一个组件两种用法，比在调用处各写一遍 Box 更不容易漂移。
-    val backdrop = if (onDark) {
-        Color.White.copy(alpha = 0.16f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f)
-    }
     Box(
         Modifier
-            .size(42.dp)
+            .size(40.dp)
             .clip(CircleShape)
-            .background(backdrop)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                shape = CircleShape
+            )
             .pressScale(source, pressedScale = 0.92f)
             .clickable(interactionSource = source, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        val tint = if (onDark) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+        val tint = MaterialTheme.colorScheme.onSurfaceVariant
         if (badge > 0) {
             BadgedBox(badge = { Badge { Text("$badge") } }) {
                 Icon(
