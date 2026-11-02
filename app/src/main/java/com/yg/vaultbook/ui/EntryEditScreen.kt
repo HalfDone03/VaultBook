@@ -1257,10 +1257,14 @@ private fun BatchSaveDialog(
                                 Text(
                                     text = buildString {
                                         val user = row.username
-                                        append(if (user.isNullOrBlank()) "只有密码" else user)
-                                        if (!row.password.isNullOrEmpty()) append(" · 已认出密码")
+                                        append(if (user.isNullOrBlank()) "只有密码" else "账号 $user")
+                                        row.password?.takeIf { it.isNotEmpty() }
+                                            ?.let { append(" · 密码 $it") }
+                                        row.notes?.takeIf { it.isNotBlank() }
+                                            ?.let { append(" · 备注 $it") }
                                     },
                                     style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -1363,9 +1367,10 @@ private fun generatePassword(length: Int = 20): String {
  *
  * 框下面实时给识别结果，分三种：
  * - 什么都没认出来：只说一句"一行一条最稳妥"，不弹错误；
- * - 认出 1 条：把结果摊开（密码打点），点「填入表单」才写进去；
- * - 认出多条：只报数量，点「看看」进批量确认框 —— 用户抄了十条进来，
- *   只填一条等于把其余九条丢了。
+ * - 认出 1 条：把结果摊开，点「填入表单」才写进去；
+ * - 认出多条：**每一条都列出来**（见 [CandidateListCard]）。早先这里只报一句
+ *   「认出 2 组账号密码」，用户的原话是"应该全部把识别出来的列出来" ——
+ *   数量没有信息量，他要看的是这十条分别是什么，好在存之前剔掉认错的。
  *
  * 特意不做"边打边自动填"：用户手打时每敲下一个数字都会触发一次识别，
  * 表单会在眼皮底下被反复改写。
@@ -1445,7 +1450,7 @@ private fun PasteField(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             rows.size == 1 -> SingleCandidateCard(rows[0], enabled, onFill)
-            else -> BatchCandidateCard(rows.size, enabled, onBatch)
+            else -> CandidateListCard(rows, enabled, onFill, onBatch)
         }
     }
 }
@@ -1496,9 +1501,25 @@ private fun SingleCandidateCard(
     }
 }
 
-/** 认出多条时只报数量，明细留给批量确认框。 */
+/**
+ * 认出多条时把每一条都摊在框下面。
+ *
+ * 早先这里只写一句「认出 2 组账号密码」加一个「看看」按钮。用户的原话是
+ * "下面应该就识别出来具体有哪些账号密码之类的…应该全部把识别出来的列出来"——
+ * 数量本身没有信息量，他要看的是这两条分别是什么，好在落库之前剔掉认错的。
+ *
+ * 每条都能点：点谁就把谁填进表单；也能一次全存（进 [BatchSaveDialog] 逐条勾选）。
+ */
 @Composable
-private fun BatchCandidateCard(count: Int, enabled: Boolean, onBatch: () -> Unit) {
+private fun CandidateListCard(
+    rows: List<CredentialParser.Result>,
+    enabled: Boolean,
+    onFill: (CredentialParser.Result) -> Unit,
+    onBatch: () -> Unit
+) {
+    // 逐条的对调状态：位置猜测必然有错判，摊开列出来时更得给每条留退路
+    var swapped by remember(rows) { mutableStateOf(emptySet<Int>()) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -1507,19 +1528,114 @@ private fun BatchCandidateCard(count: Int, enabled: Boolean, onBatch: () -> Unit
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Text(
-                text = "认出 $count 组账号密码",
+                text = "认出 ${rows.size} 组",
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "可以一次全存进去，也可以只挑几条。",
+                text = "点哪一条就把它填进表单；也可以一次全存。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(Modifier.height(6.dp))
+
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                rows.forEachIndexed { index, row ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+                    }
+                    val flipped = index in swapped
+                    CandidateRow(
+                        index = index,
+                        row = if (flipped) row.swapped() else row,
+                        canSwap = row.username != null && row.password != null,
+                        swapped = flipped,
+                        enabled = enabled,
+                        onSwap = {
+                            swapped = if (flipped) swapped - index else swapped + index
+                        },
+                        onClick = { onFill(if (flipped) row.swapped() else row) }
+                    )
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onBatch, enabled = enabled) { Text("看看") }
+                TextButton(onClick = onBatch, enabled = enabled) { Text("一次全存") }
             }
         }
+    }
+}
+
+/** 摊开时的一行：序号 + 标题 + 账号/密码/备注/网址，右侧可选「反了」。 */
+@Composable
+private fun CandidateRow(
+    index: Int,
+    row: CredentialParser.Result,
+    canSwap: Boolean,
+    swapped: Boolean,
+    enabled: Boolean,
+    onSwap: () -> Unit,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 8.dp)
+    ) {
+        Text(
+            text = "${index + 1}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(18.dp)
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = row.title ?: row.url ?: row.username ?: "未命名",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            // 密码照原文显示，理由同 [describeCandidate]：原文就在上面的输入框里，
+            // 打点只会让人核对不了切得对不对。
+            row.username?.takeIf { it.isNotBlank() }?.let { CandidateDetail("账号", it) }
+            row.password?.takeIf { it.isNotEmpty() }?.let { CandidateDetail("密码", it) }
+            row.notes?.takeIf { it.isNotBlank() }?.let { CandidateDetail("备注", it) }
+            if (row.title != null) {
+                row.url?.takeIf { it.isNotBlank() }?.let { CandidateDetail("网址", it) }
+            }
+        }
+        if (canSwap) {
+            TextButton(onClick = onSwap, enabled = enabled) {
+                Text(
+                    text = if (swapped) "换回" else "反了",
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
+}
+
+/** 「标签  值」一行，值用等宽字体，0 与 O、1 与 l 的差别一眼能看出来。 */
+@Composable
+private fun CandidateDetail(label: String, value: String) {
+    Row {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(34.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace
+        )
     }
 }
 
