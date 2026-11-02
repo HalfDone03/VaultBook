@@ -82,7 +82,7 @@ object CredentialParser {
     // 长的放前面：同一起点上，交替分支是"先匹配到的赢"，
     // 若 `user` 排在 `username` 前面，`username:` 会被切成 `user` + `name:`
     private const val USER_LABELS =
-        "登录账号|登录名|用户名|用户账号|用户|账号|帐号|账户|手机号码|手机号|" +
+        "登录账号|登录名|用户名|用户账号|微信号|用户|账号|帐号|账户|手机号码|手机号|手机|" +
             "邮箱地址|邮箱|username|userid|account|login|email|phone|mobile|user"
 
     /**
@@ -93,11 +93,21 @@ object CredentialParser {
     private const val PASS_LABELS =
         "登录密码|支付密码|交易密码|password|passwd|passcode|pwd|secret|密码|口令|pass"
 
+    /**
+     * `网站`、`site` 不在这张表里 —— 它们在手抄笔记里几乎总是指"哪个平台"
+     * （`网站：淘宝`、`Site: Steam`），放进网址列会被当成网址收下、标题留空。
+     * 真正指链接的是 `网址`、`url`、`link`、`host`。
+     */
     private const val URL_LABELS =
-        "website|domain|网址|网站|链接|地址|url|site|link|host"
+        "website|domain|网址|链接|地址|url|link|host"
 
+    /**
+     * `网站`、`site` 从网址表挪到了这里 —— 手抄笔记里 `网站：淘宝`、`Site: Steam`
+     * 指的是"哪个平台"，放进网址列会被当成链接收下、标题留空。
+     * 真正指链接的是 `网址`、`url`、`link`、`host`、`地址`。
+     */
     private const val TITLE_LABELS =
-        "application|platform|service|title|app名|标题|名称|站点|平台|应用|软件|site|app|name"
+        "application|platform|service|title|app名|标题|名称|站点|平台|应用|软件|site|app|name|网站"
 
     private const val NOTES_LABELS =
         "备注信息|备注|说明|注释|description|remark|notes|note|memo"
@@ -110,8 +120,9 @@ object CredentialParser {
      *
      * 备注曾经也在这张表里，后来单独拆成 [NOTES_LABELS]：备注要留下，不要丢。
      */
+    // `昵称` 不是账号（微信导出的三行里它排第一，会挡住真正的「微信号」）。
     private const val IGNORE_LABELS =
-        "index|序号|编号|分类|类型|标签"
+        "index|序号|编号|分类|类型|标签|昵称|nickname"
 
     /**
      * 前面不能粘着字母数字：`demo_user:abc` 里的 `user` 是账号的一部分，
@@ -127,6 +138,8 @@ object CredentialParser {
             "|(?<title>$TITLE_LABELS)" +
             "|(?<notes>$NOTES_LABELS)" +
             "|(?<ignore>$IGNORE_LABELS))" +
+            // 字段名后面常跟个序号：`账号1：`、`密码2：`、`password1=`
+            "[0-9]{0,3}" +
             "\\s*[:：=＝]\\s*"
     )
 
@@ -139,13 +152,16 @@ object CredentialParser {
      */
     private val BARE_KV_REGEX = Regex(
         "(?i)" +
-            "(?:^|(?<=[\\s，,；;|、。]))" +
+            // 反引号里的括号也认：`「淘宝」账号 taobao_14` 里「账号」前面是 `」`，
+            // 早先只认空白和半角标点，于是账号整行没人要，只捞到一个密码。
+            "(?:^|(?<=[\\s，,；;|、。」』】》\"'\\]\\)）]))" +
             "(?:(?<user>$USER_LABELS)" +
             "|(?<pass>$PASS_LABELS)" +
             "|(?<url>$URL_LABELS)" +
             "|(?<title>$TITLE_LABELS)" +
             "|(?<notes>$NOTES_LABELS)" +
             "|(?<ignore>$IGNORE_LABELS))" +
+            "[0-9]{0,3}" +
             "\\s+"
     )
 
@@ -181,7 +197,7 @@ object CredentialParser {
     )
 
     /** 表格里的分隔符候选，按"谁更像列分隔符"的顺序试。 */
-    private val TABLE_DELIMITERS = listOf(',', '\t', ';', '|')
+    private val TABLE_DELIMITERS = listOf(',', '\t', ';', '|', '｜')
 
     /**
      * XML 里成对的标签：`<platform>微信</platform>`。
@@ -197,7 +213,7 @@ object CredentialParser {
     )
 
     /** 一行自成一条、行首写着列名时可能用到的分隔符，按"切得最碎"挑一个。 */
-    private val ROW_DELIMITERS = charArrayOf('|', ',', '，', ';', '；', '\t', '&')
+    private val ROW_DELIMITERS = charArrayOf('|', '｜', ',', '，', ';', '；', '\t', '&')
 
     /**
      * 行首列名之后的几个值按这个顺序填。
@@ -212,6 +228,39 @@ object CredentialParser {
 
     /** 写成邮箱的样子：`a@b.com`。用来把"账号行"和"密码行"分开。 */
     private val EMAIL_SHAPE = Regex("^[^@\\s]{1,64}@[^@\\s]{1,64}\\.[A-Za-z]{2,12}$")
+
+    /**
+     * 行首的项目符号：`- 淘宝 …`、`• 知乎 …`、`* 微博 …`。
+     *
+     * 要求后面必须跟空白，不然 `-123456` 这种以减号开头的密码也会被剥掉。
+     * 不剥的话它会占掉第一个位置：标题变成 `-`、账号变成平台名、密码变成账号。
+     */
+    private val BULLET_PREFIX = Regex("^(?:[•·▪◦‣∙●○◆◇★☆※>]|[-–—*+])[ \\t\\u3000]+")
+
+    /** 书名号/方头括号里包着的平台名：`「淘宝」账号 …`、`【淘宝】`。 */
+    private val BRACKET_TITLE = Regex("[「『【《]([^」』】》\\n]{1,20})[」』】》]")
+
+    /**
+     * XML 里带属性的自闭合标签：`<entry site="淘宝" user="j1" pass="J#111111"/>`。
+     *
+     * 导出工具也爱用这种写法，早先只认 `<tag>值</tag>`，属性写法一个字都认不出，
+     * 只捞到 `"j1"` 这种带引号的残渣。
+     */
+    private val XML_TAG_REGEX = Regex(
+        "<([A-Za-z_][\\w.\\-]{0,30})" +
+            "((?:\\s+[A-Za-z_][\\w.\\-]{0,30}\\s*=\\s*(\"[^\"]{0,400}\"|'[^']{0,400}'))+)\\s*/?>"
+    )
+
+    // 单引号也算：手写的 XML / HTML 片段常是 `<e site='淘宝' user='x'/>`。
+    private val XML_ATTR_REGEX = Regex(
+        "([A-Za-z_][\\w.\\-]{0,30})\\s*=\\s*(?:\"([^\"]{0,400})\"|'([^']{0,400})')"
+    )
+
+    /** 连写行里夹着的账号：`微博账号weibo_13密码Wb@131313` 中间那段。 */
+    private val EMBEDDED_ACCOUNT = Regex(
+        "(?:账号|帐号|账户|用户名|登录名|username|account)([A-Za-z0-9_.@+\\-]{2,})",
+        RegexOption.IGNORE_CASE
+    )
 
     /** 表头/JSON 键名归一化后能认出的列。 */
     private enum class Column { TITLE, USER, PASS, URL, NOTES, IGNORE }
@@ -279,7 +328,9 @@ object CredentialParser {
     fun parse(raw: String?): Result? {
         if (raw.isNullOrBlank()) return null
 
-        val text = raw.replace("\r\n", "\n").replace('\r', '\n')
+        // 顺手去掉 BOM：从 Excel、CSV 里复制出来的文本开头常带一个，
+        // 粘在第一个字段名前（`\uFEFF平台`）会让整个表头认不出列。
+        val text = raw.replace("\r\n", "\n").replace('\r', '\n').replace("\uFEFF", "")
         var username: String? = null
         var password: String? = null
         var url: String? = null
@@ -295,6 +346,7 @@ object CredentialParser {
         // `<user>wx</user>` 会被当成账号、`账号(xx)` 会连标签一起进用户名。
         xmlRecords(text)?.firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
         parenRecords(text)?.firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
+        slashRecord(text)?.takeIf { it.hasCredential }?.let { return it }
         labeledRows(text)?.firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
         tableRecords(text).firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
 
@@ -304,10 +356,15 @@ object CredentialParser {
         val chainLines = text.split('\n')
             .map { it.stripLineIndex().edgeTrim() }
             .filter { it.isNotEmpty() }
-        if (chainLines.size >= 2 && chainLines.all { splitColonChain(it) != null }) {
+        // 只是「有冒号」还不够：`账号：a1，密码：b1` 也能被切成三段，
+        // 但字段名已经明写出来了，这时候 kv 比位置猜更可靠。
+        // 判据是 kv 自己能不能凑出账号和密码两样：凑得出就别猜位置，
+        // 只有 `邮箱:demo@x.com:Mail#2024` 这种 kv 只认出一个字段的才交给链式。
+        val chainAllowed = !kvCoversBoth(text)
+        if (chainAllowed && chainLines.size >= 2 && chainLines.all { splitColonChain(it) != null }) {
             parse(chainLines.first())?.let { return it }
         }
-        chainLines.singleOrNull()?.let { splitColonChain(it) }?.let { chain ->
+        if (chainAllowed) chainLines.singleOrNull()?.let { splitColonChain(it) }?.let { chain ->
             val single = Result(
                 username = chain.second,
                 password = chain.third,
@@ -345,7 +402,9 @@ object CredentialParser {
                     url = cleanUrl(value) ?: value.ifBlank { null }
                 }
                 match.groups["title"] != null && title == null -> {
-                    title = value.ifBlank { null }
+                    // `网站：www.taobao.com`：标着标题、值却是网址，归到网址去
+                    val host = cleanUrl(value)
+                    if (host != null && url == null) url = host else title = value.ifBlank { null }
                 }
                 match.groups["notes"] != null && notes == null -> {
                     notes = value.ifBlank { null }
@@ -363,7 +422,12 @@ object CredentialParser {
             val valueStart = match.range.last + 1
             val lineEnd = text.indexOf('\n', valueStart).let { if (it < 0) text.length else it }
             val next = BARE_KV_REGEX.find(text, valueStart)
-            val valueEnd = if (next != null && next.range.first < lineEnd) next.range.first else lineEnd
+            // 同一行里后面跟着冒号写法的键（`密码 p1 备注：验证码存在邮箱里`）时，
+            // 值必须截止到那里，否则密码会变成 `p1 备注：验证码存在邮箱里`。
+            val nextColon = KV_REGEX.find(text, valueStart)
+            val valueEnd = listOfNotNull(next?.range?.first, nextColon?.range?.first)
+                .filter { it < lineEnd }
+                .minOrNull() ?: lineEnd
             val value = text.substring(valueStart, valueEnd).cleanValue()
             // 冒号写法之外，值完全可能是下一个字段名（`账号 密码 abc`），
             // 那种情况说明这一行没有值，跳过而不是把字段名当值。
@@ -379,7 +443,10 @@ object CredentialParser {
                 match.groups["url"] != null && url == null -> {
                     url = usable?.let { cleanUrl(it) ?: it }
                 }
-                match.groups["title"] != null && title == null -> title = usable
+                match.groups["title"] != null && title == null -> {
+                    val host = usable?.let { cleanUrl(it) }
+                    if (host != null && url == null) url = host else title = usable
+                }
                 match.groups["notes"] != null && notes == null -> notes = usable
             }
             consumedLines += lineIndex
@@ -438,8 +505,17 @@ object CredentialParser {
                     if (username == null) username = mixed.value
                 }
                 if (mixed.user != null && username == null) username = mixed.user
-                // 账号已经从左侧拆出来了，那半截「账号admin」不配当标题
-                if (title == null && mixed.user == null) title = mixed.head
+                // 左侧那半截当标题：连着账号一起抠出来时（`微博账号weibo_13`），
+                // 剩下的 `微博` 就是平台名；单纯「云盘账户」这种也照旧当标题，
+                // 但要把尾巴上的「账号」「密码」剥掉，否则标题会变成「微博账号」。
+                if (title == null) {
+                    val head = stripChatter(mixed.head)
+                    title = if (mixed.user != null) {
+                        head.takeIf { isPlainSiteName(it) }
+                    } else {
+                        mixed.head
+                    }
+                }
             } else {
                 // 「账号:密码」连写：`zhang@qq.com:abc123`、`admin:p@ssw0rd`
                 // 三个冒号的「标签:账号:密码」（`微信:demo_wx:Wx@123`）也在这里认。
@@ -469,6 +545,12 @@ object CredentialParser {
         // 这一步排在"按位置猜"之后：猜出来的标题更可信，只有没猜着时才补。
         if (title == null) {
             title = leftovers.firstOrNull { isPlainSiteName(it) }
+        }
+        // 转发卡片和截图常把平台名包在括号里：`「淘宝」账号 …`、`【淘宝】`。
+        // 这一类没有"平台："这样的键，只剩括号能看出哪个词是平台名。
+        if (title == null) {
+            title = BRACKET_TITLE.find(text)?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.isNotEmpty() && it.any { ch -> ch.code >= 0x2E80 } }
         }
 
         // 纯标点不算凭据。粘贴一段"、、；！！"之类的东西时不该弹"检测到账号密码"。
@@ -514,7 +596,9 @@ object CredentialParser {
         val single = parse(raw)?.takeIf { it.hasCredential }?.let { listOf(it) } ?: emptyList()
         if (raw.isNullOrBlank()) return emptyList()
 
-        val text = raw.replace("\r\n", "\n").replace('\r', '\n')
+        // 顺手去掉 BOM：从 Excel、CSV 里复制出来的文本开头常带一个，
+        // 粘在第一个字段名前（`\uFEFF平台`）会让整个表头认不出列。
+        val text = raw.replace("\r\n", "\n").replace('\r', '\n').replace("\uFEFF", "")
 
         // 0) JSON 数组 / XML / 括号包值 / 行首带列名 / 一整张表：
         //    字段名是显式的，别再让"按位置猜"的规则去猜
@@ -535,6 +619,11 @@ object CredentialParser {
             .map { it.stripLineIndex().edgeTrim() }
             .filter { it.isNotEmpty() && !isSeparatorLine(it) && !isHeaderLine(it) }
 
+        // 0.4) 没有表头、但每行都是同样几格：`淘宝;l1;Tb@111111` / `京东;l2;Jd@222222`。
+        //      这种表以前一条都认不对 —— 分号不在"行内分隔符"里，整行按连写处理，
+        //      于是标题是 `淘宝`、密码是 `;l1;Tb@111111`。
+        headerlessRows(lines)?.let { return it }
+
         // 0.5) 账号、密码上下交替抄：`a@b.com` / `Mail@123` / `c@d.com` / `Mail#654`。
         //      这种形状没有任何一行能自己拆开、也没有重复的键可切，
         //      全部规则都认不出，最后只拼出第一条、后两行整段丢掉。
@@ -548,15 +637,24 @@ object CredentialParser {
             if (parsed.size >= 2) return parsed
         }
 
+        // 带字段名的行（`Site: Steam`、`账号：a1`）：这种一段文字本来就是一整条记录，
+        // 「一行一条」的各种拆法都会把标题、账号、密码拆成几条半记录，后面几处要靠它跳过。
+        val looksKeyed = lines.any { KV_REGEX.containsMatchIn(it) || BARE_KV_REGEX.containsMatchIn(it) }
+
         // 2) 一行一条「标签:账号:密码」：`微信:demo_wx_001:Wx@123456`。
         //    三个冒号的形状以前一条都认不出 —— 整行被当账号、后面的行全丢。
-        if (lines.size >= 2 && lines.all { splitColonChain(it) != null }) {
+        //    某一行自己就能被 kv 拆成账号+密码时不算（`账号：a1，密码：b1`）。
+        if (lines.size >= 2 && lines.none { kvCoversBoth(it) } &&
+            lines.all { splitColonChain(it) != null }
+        ) {
             val parsed = lines.mapNotNull { parse(it) }.filter { it.hasCredential }
             if (parsed.size >= 2) return parsed
         }
 
         // 2) 一行一条：每行都能切出 ≥2 段
-        if (lines.size >= 2 && lines.all { splitInline(it).size >= 2 }) {
+        //    带字段名（`Site: Steam`）的不算 —— 那种一段文字本来就是一整条记录，
+        //    每行都切得开，按"一行一条"拆会把标题、账号、密码拆成三条半记录。
+        if (!looksKeyed && lines.size >= 2 && lines.all { splitInline(it).size >= 2 }) {
             val parsed = lines.mapNotNull { parse(it) }.filter { it.hasCredential }
             if (parsed.size >= 2) return parsed
         }
@@ -592,6 +690,13 @@ object CredentialParser {
     private fun recordStarts(text: String): List<Int> {
         val starts = arrayListOf(0)
         var seenPassword = false
+        // 只凭「密码之后又冒出个账号键」就切块会切错：`账号：ph1 密码：… 手机：138…`
+        // 里的手机号会变成第二条。所以还要求它后面跟着自己的密码，
+        // 或者它本身就是标题键（`平台：` 才是一段记录的开头）。
+        val passPositions = KV_REGEX.findAll(text)
+            .filter { it.groups["pass"] != null }
+            .map { it.range.first }
+            .toList()
         KV_REGEX.findAll(text).forEach { match ->
             if (match.groups["pass"] != null) {
                 seenPassword = true
@@ -599,6 +704,9 @@ object CredentialParser {
             }
             val isRecordHead = match.groups["title"] != null || match.groups["user"] != null
             if (!isRecordHead || !seenPassword) return@forEach
+            val opensOwnRecord = match.groups["title"] != null ||
+                passPositions.any { it > match.range.first }
+            if (!opensOwnRecord) return@forEach
             val lineStart = text.lastIndexOf('\n', (match.range.first - 1).coerceAtLeast(0))
                 .let { if (it < 0) 0 else it + 1 }
             val boundary = if (lineStart > starts.last()) lineStart else match.range.first
@@ -687,6 +795,14 @@ object CredentialParser {
             USER_LABEL_PREFIX.matchEntire(name)?.let { m ->
                 return MixedLine(name, tail, true, m.groupValues[1])
             }
+            // 「微博账号weibo_13密码Wb@131313」：账号夹在中间，后面又跟着中文
+            // 「密码」，所以上面那条"整名只有 账号+值"的规则不匹配；这里直接从
+            // 名字里把 `账号weibo_13` 抠出来，剩下的「微博」才是平台名。
+            EMBEDDED_ACCOUNT.find(name)?.let { m ->
+                val account = m.groupValues[1]
+                val site = name.substring(0, m.range.first).trim()
+                return MixedLine(site, tail, true, account)
+            }
         }
 
         return MixedLine(name, tail, isPassword)
@@ -731,7 +847,25 @@ object CredentialParser {
         if (lines.size == 1) {
             // 行里混着网址时先把网址那一段剔掉，否则 `admin abc123 www.a.com`
             // 会变成账号=abc123、密码=www.a.com
-            val parts = splitInline(lines[0]).filterNot { cleanUrl(it) != null }
+            val tokens = splitInline(lines[0]).filterNot { cleanUrl(it) != null }
+            // `淘宝 admin1:Pa@ss123`：其中一段本身就是「账号:密码」，另一段是平台名。
+            // 这种行按位置猜会把整段 `admin1:Pa@ss123` 当账号，密码留空。
+            val pair = tokens.firstNotNullOfOrNull { token ->
+                splitAccountColonPassword(token)?.let { token to it }
+            }
+            if (pair != null) {
+                val site = tokens.firstOrNull { it != pair.first && isPlainSiteName(it) }
+                return Triple(pair.second.first, pair.second.second, site)
+            }
+            // 一句话里的口头包装（`淘宝的账号是 taobao_12 密码是 Tb@121212`）：
+            // 「淘宝的账号是」不是标题、「密码是」也不是密码，按位置猜会整体错位。
+            // 剥掉包装后剩下的词才是值；其中像平台名的那半截当标题备选。
+            // 注意留的是**剥完之后**的词：留着原串会让「淘宝的账号是」既占一个位置
+            // 又当上标题（`parts.size >= 3` 那条分支直接把 parts[0] 当标题）。
+            val parts = tokens.map { stripChatter(it) }.filter { it.isNotEmpty() }
+            val hint = tokens.firstNotNullOfOrNull { token ->
+                stripChatter(token).takeIf { isPlainSiteName(it) }
+            }
             val guess = when {
                 parts.size >= 3 -> Triple(parts[1], parts[2], parts[0])
                 // 只有两段时想当然当成「账号 密码」会出错：`抖音 12313213`
@@ -755,7 +889,13 @@ object CredentialParser {
                     }
                 }
                 parts.isEmpty() -> Triple(null, null, null)
+                // 只剩一个词、而密码已经从别处认出来了（`淘宝` / `密码：Tb@161616`），
+                // 那个词是平台名而不是账号。
+                isPlainSiteName(parts[0]) && knownPass != null -> Triple(null, null, parts[0])
                 else -> Triple(if (knownUser == null) parts[0].ifBlank { null } else null, null, null)
+            }
+            if (guess.third == null && hint != null) {
+                return Triple(guess.first, guess.second, hint)
             }
             // `抖音12313213 1231313`：平台名和账号贴在一起，直接当账号会变成
             // `抖音12313213`，用户看着就是"认错了"。把平台名剥出来当标题。
@@ -905,19 +1045,46 @@ object CredentialParser {
      *
      * 只动两端，中间的字符一个不碰 —— 密码里带空格是合法的。
      */
-    private fun String.cleanValue(): String =
-        trim()
-            .trim('\u3000', '\u00A0')
-            .trim(',', '，', ';', '；', '|', '&')
+    private fun String.cleanValue(): String {
+        var v = trim().trim('\u3000', '\u00A0')
+        // 引号包住的值（`密码："P@ss word"`）去掉外壳，里面的空格留着。
+        // 只在外壳成对时动，`5'6"` 这种半截引号当密码的不受影响。
+        if (v.length >= 2) {
+            val head = v.first()
+            val tail = v.last()
+            val paired = (head == '"' && tail == '"') || (head == '\'' && tail == '\'') ||
+                (head == '“' && tail == '”') || (head == '‘' && tail == '’') ||
+                (head == '「' && tail == '」')
+            if (paired) v = v.substring(1, v.length - 1).trim()
+        }
+        // 结构闭合符：从 JSON / XML 里连壳一起抄过来时，值后面会拖着 `}`、`]`、`)`。
+        v = v.trimEnd('}', ']', ')', '）', '»', '>')
+        // 查询串里的第一个参数：`...?user=taobao_60&remember=1` 里值取到第一个 `&` 为止。
+        // 只有当 `&` 后面还是一个 `键=值` 时才切，`p@ss&word` 这种真密码不动。
+        val amp = v.indexOf('&')
+        if (amp > 0 && v.substring(amp + 1).contains('=')) v = v.substring(0, amp).trim()
+        v = v.trim(',', '，', ';', '；', '|', '&', '。', '、', '！', '？', '…')
+        // 值后面还粘着下一个字段名：`账号：a1，密码：b1` 里第一格会取到 `a1，密码`。
+        // 只剥「分隔符 + 字段名」这种粘法 —— 光看结尾会误伤真值，
+        // 备注写着「老账号」时不该被当成字段名砍成「老」。
+        repeat(2) {
+            val stripped = v.replace(GLUED_LABEL, "").trim(',', '，', ';', '；', '|', '&', '。', '、')
+            if (stripped != v) v = stripped
+        }
+        return v.trim(',', '，', ';', '；', '|', '&', '。', '、', '！', '？', '…')
+    }
 
     /** 同上，但更保守：只去空白类字符，不去标点。 */
     private fun String.edgeTrim(): String = trim().trim('\u3000', '\u00A0')
 
-    /** 行首序号剥掉：`1. 淘宝 …`、`②淘宝 …`、`第3条 淘宝 …`。 */
+    /** 行首序号剥掉：`1. 淘宝 …`、`②淘宝 …`、`第3条 淘宝 …`；顺手剥项目符号。 */
     private fun String.stripLineIndex(): String {
-        val m = LINE_INDEX_PREFIX.find(this) ?: return this
-        val rest = substring(m.range.last + 1)
-        return if (rest.isBlank()) this else rest
+        var rest = this
+        LINE_INDEX_PREFIX.find(rest)?.let { m ->
+            val after = rest.substring(m.range.last + 1)
+            if (after.isNotBlank()) rest = after
+        }
+        return rest.replaceFirst(BULLET_PREFIX, "")
     }
 
     /** 整行只有横线：`---`、`===`、`***`、`———`。 */
@@ -944,6 +1111,58 @@ object CredentialParser {
         return v in HEADER_WORDS
     }
 
+    /**
+     * 剥掉句子里的口头包装：`淘宝的账号是` → `淘宝`、`密码是` → 空串。
+     *
+     * 手抄和聊天记录里最常见的写法是「某平台的账号是 xxx，密码是 yyy」。
+     * 以前按位置切词，`淘宝的账号是` 会占住标题的位置、`密码是` 会占住密码的位置，
+     * 结果是标题一长串、密码写着「密码是」（用户反馈「识别得不对」）。
+     *
+     * 先剥尾部的「的/是/为」（可以连着出现：`是的`），再剥尾部的字段名。
+     * 剩下的若还是字段名或空串，这个词就不是值，不能占位置。
+     */
+    private fun stripChatter(token: String): String {
+        // 括号不剥：`平台(必填)` 要整串留给 `isLabelSlot` 认成「列名 + 占位说明」，
+        // 剥掉半边括号会变成既不是列名也不是值的怪东西，接着就被当成账号存下去。
+        var t = token.trim()
+            .trim('「', '」', '『', '』', '【', '】', '《', '》', ':', '：', ',', '，', '。')
+        while (true) {
+            val next = t.removeSuffix("的").removeSuffix("是").removeSuffix("为").trim()
+            if (next == t) break
+            t = next
+        }
+        t = t.replace(LABEL_TAIL, "").trim()
+        // 剥完又露出新的「的」（`淘宝的账号的`），再收一次
+        while (true) {
+            val next = t.removeSuffix("的").removeSuffix("是").removeSuffix("为").trim()
+            if (next == t) break
+            t = next
+        }
+        return t
+    }
+
+    /** 字段名清单，`LABEL_TAIL` 与「值里粘着字段名」两条规则共用一份。 */
+    private val LABEL_WORDS = listOf(
+        "登录账号", "登录密码", "支付密码", "用户账号", "用户名", "手机号码", "手机号",
+        "邮箱地址", "账号", "帐号", "账户", "密码", "口令", "平台", "网站", "站点",
+        "邮箱", "备注", "说明"
+    )
+
+    /** 一段话末尾的字段名：`淘宝的账号` 里的「账号」。 */
+    private val LABEL_TAIL = Regex(
+        "(" + LABEL_WORDS.joinToString("|") + ")$",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * 值里粘着的下一个字段名：`账号：a1，密码：b1` 里第一格取到的是 `a1，密码`。
+     * 没有空格当分隔时，字段名会跟着逗号一起挤进前一个值里。
+     */
+    private val GLUED_LABEL = Regex(
+        "[,，;；|]\\s*(?:" + LABEL_WORDS.joinToString("|") + ")\\s*[:：=＝]?\\s*$",
+        RegexOption.IGNORE_CASE
+    )
+
     // ── XML / 括号包值 / 行首列名 / 交替抄写 ────────────────────
 
     /**
@@ -954,11 +1173,14 @@ object CredentialParser {
      * 切省事，也不依赖容器标签叫什么。
      */
     private fun xmlRecords(text: String): List<Result>? {
-        if (!text.contains('<') || !text.contains("</")) return null
+        if (!text.contains('<') || !text.contains("</")) {
+            // 只有 `<entry site="…"/>` 这种自闭合标签时没有 `</`，也还有救
+            return xmlAttributeRecords(text)
+        }
         val pairs = XML_PAIR_REGEX.findAll(text)
             .map { it.groupValues[1].lowercase() to it.groupValues[2].trim() }
             .toList()
-        if (pairs.size < 2) return null
+        if (pairs.size < 2) return xmlAttributeRecords(text)
 
         val anchor = pairs.first().first
         val chunks = arrayListOf<MutableList<Pair<String, String>>>()
@@ -973,6 +1195,23 @@ object CredentialParser {
         if (current.isNotEmpty()) chunks.add(current)
 
         val records = chunks.mapNotNull { chunk -> resultOfPairs(chunk) }
+        return records.takeIf { it.isNotEmpty() } ?: xmlAttributeRecords(text)
+    }
+
+    /**
+     * 属性写法的 XML：`<entry site="淘宝" user="j1" pass="J#111111"/>`。
+     *
+     * 一个带属性的标签就是一条记录；外层容器（`<accounts count="2">`）只有
+     * 一个属性、认不出账号密码，会被 [resultOfPairs] 的 `hasCredential` 挡掉。
+     */
+    private fun xmlAttributeRecords(text: String): List<Result>? {
+        if (!text.contains('=')) return null
+        val records = XML_TAG_REGEX.findAll(text).mapNotNull { tag ->
+            val attrs = XML_ATTR_REGEX.findAll(tag.groupValues[2])
+                .map { it.groupValues[1] to it.groupValues[2].ifBlank { it.groupValues[3] } }
+                .toList()
+            if (attrs.size < 2) null else resultOfPairs(attrs)
+        }.toList()
         return records.takeIf { it.isNotEmpty() }
     }
 
@@ -1030,6 +1269,34 @@ object CredentialParser {
     private fun parenRecords(text: String): List<Result>? {
         val records = text.split('\n').mapNotNull { parenRecord(it.stripLineIndex().edgeTrim()) }
         return records.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * 斜杠隔开的三格：`淘宝/taobao_01/Tb@123456`。
+     *
+     * 只认一整行、不带空白、也不带 `://` 的 —— 带协议头的斜杠是网址，
+     * 拆开只会把链接切碎。第一格必须是中文平台名，第二格像账号、第三格像密码。
+     */
+    private fun slashRecord(text: String): Result? {
+        val line = text.trim()
+        if (line.isEmpty()) return null
+        if (line.contains("://")) return null
+        // 竖线（半角与全角）也是常见的分格符：`淘宝｜taobao_35｜Tb@353535`
+        val raw = line.split('/', '|', '｜').map { it.trim() }
+        // 两格时还可能是「平台：账号 / 密码」：`淘宝：taobao_62 / Tb@626262`
+        val cells = if (raw.size == 2 && raw[0].count { it == ':' || it == '：' } == 1) {
+            val cut = raw[0].indexOfFirst { it == ':' || it == '：' }
+            listOf(raw[0].substring(0, cut).trim(), raw[0].substring(cut + 1).trim(), raw[1])
+        } else {
+            raw
+        }
+        if (cells.size != 3 || cells.any { it.isEmpty() }) return null
+        // 格子里不能带空白：`淘宝 taobao_01 Tb@123456` 这种空格分列的形状不归这里管。
+        if (cells.any { cell -> cell.any { it.isWhitespace() } }) return null
+        if (!isPlainSiteName(cells[0])) return null
+        if (!ACCOUNT_TOKEN.matches(cells[1])) return null
+        if (!looksLikeSecret(cells[2])) return null
+        return Result(username = cells[1], password = cells[2], title = cells[0])
     }
 
     private fun parenRecord(line: String): Result? {
@@ -1161,6 +1428,16 @@ object CredentialParser {
      * 这里再加一道只会抢走别的形状。
      */
     private fun alternatingRecords(lines: List<String>): List<Result>? {
+        // 三行版本：头一行是平台名，后两行是一组（`邮箱` / `m1@example.com` / `Ma@111111`）。
+        // 平台名是英文站名（`Gmail`）也算，只要不带数字和符号。
+        val asciiTitle = lines[0].length in 2..20 && lines[0].all { it.isLetter() && it.code < 0x2E80 }
+        if (lines.size == 3 &&
+            (isPlainSiteName(lines[0]) || asciiTitle) &&
+            looksLikeAccount(lines[1]) &&
+            looksLikeSecret(lines[2])
+        ) {
+            return listOf(Result(username = lines[1], password = lines[2], title = lines[0]))
+        }
         if (lines.size < 4 || lines.size % 2 != 0) return null
         val records = arrayListOf<Result>()
         var index = 0
@@ -1190,6 +1467,59 @@ object CredentialParser {
     }
 
     // ── 表格与 JSON ─────────────────────────────────────────────
+
+    /**
+     * 没有表头、但每行都是同样几格：`淘宝;l1;Tb@111111` / `京东;l2;Jd@222222`。
+     *
+     * 分号、竖线不在「行内分隔符」里，这种两行三格的抄法以前整行被当成连写：
+     * 标题是 `淘宝`、密码变成 `;l1;Tb@111111`。这里按格数补位置 ——
+     * 两格当「账号 密码」、三格当「平台 账号 密码」、四格再加一列备注。
+     *
+     * 只在**每一行都切出同样多的格**时认，且要求每行都既有账号又有密码：
+     * 混着别的形状（一格的行、格子自带字段名的行）时交回后面的规则。
+     */
+    private fun headerlessRows(lines: List<String>): List<Result>? {
+        if (lines.size < 2) return null
+        for (delimiter in TABLE_DELIMITERS) {
+            val rows = lines.map { splitCells(it, delimiter) }
+            val size = rows.first().size
+            if (size < 2 || size > 4) continue
+            if (rows.any { it.size != size }) continue
+            // 格子里自带字段名（`平台=微博`）时那是 labeledRows 的形状，别抢
+            if (rows.any { cells -> cells.any { splitCellLabel(it) != null } }) continue
+            val order = when (size) {
+                2 -> listOf(Column.USER, Column.PASS)
+                3 -> listOf(Column.TITLE, Column.USER, Column.PASS)
+                else -> listOf(Column.TITLE, Column.USER, Column.PASS, Column.NOTES)
+            }
+            val records = rows.mapNotNull { cells ->
+                var user: String? = null
+                var pass: String? = null
+                var title: String? = null
+                var notes: String? = null
+                order.forEachIndexed { index, column ->
+                    val cell = cells.getOrNull(index)?.ifBlank { null } ?: return@forEachIndexed
+                    when (column) {
+                        Column.USER -> if (user == null) user = cell
+                        Column.PASS -> if (pass == null) pass = cell
+                        Column.TITLE -> if (title == null) title = cell
+                        Column.NOTES -> if (notes == null) notes = cell
+                        Column.URL, Column.IGNORE -> Unit
+                    }
+                }
+                Result(username = user, password = pass, title = title, notes = notes)
+                    .takeIf { it.hasCredential }
+            }
+            if (records.size != lines.size) continue
+            if (records.any { it.password == null }) continue
+            // 密码那一格得像个密码：至少有一个半角字母或数字。
+            // `项目,说明` / `淘宝,购物用` 这种两列的说明表会切出同样多的格，
+            // 光看格数分不出来，靠这一条挡住。
+            if (records.any { r -> r.password?.none { it.code < 128 && it.isLetterOrDigit() } != false }) continue
+            return records
+        }
+        return null
+    }
 
     /**
      * 表头或 JSON 键名属于哪一列。认不出返回 null。
@@ -1237,8 +1567,10 @@ object CredentialParser {
      * 也会被当成表，把本来能按位置猜出来的东西拆坏。
      */
     private fun tableRecords(text: String): List<Result> {
+        // 这里不剥行首序号：`序号,平台,账号,密码` 那张表的每行都以 `1,` 开头，
+        // 剥掉之后整行左移一列（平台变成序号、账号变成平台），全表错位。
         val lines = text.split('\n')
-            .map { it.stripLineIndex().edgeTrim() }
+            .map { it.edgeTrim() }
             .filter { it.isNotEmpty() && !isSeparatorLine(it) }
         if (lines.size < 2) return emptyList()
 
@@ -1250,7 +1582,11 @@ object CredentialParser {
         if (Column.USER !in columns || Column.PASS !in columns) return emptyList()
 
         return lines.drop(1).mapNotNull { line ->
-            val cells = splitCells(line, delimiter)
+            var cells = splitCells(line, delimiter)
+            // 表头有编号列时，编号本身就是那两三个数字，不是错位
+            if (cells.size == columns.size + 1 && cells[0].matches(Regex("^\\d{1,4}$"))) {
+                cells = cells.drop(1)
+            }
             if (cells.size < 2) return@mapNotNull null
             var user: String? = null
             var pass: String? = null
@@ -1283,13 +1619,28 @@ object CredentialParser {
     }
 
     /** 按分隔符切单元格，顺手剥掉 CSV 的引号。 */
-    private fun splitCells(line: String, delimiter: Char): List<String> =
-        line.split(delimiter).map { cell ->
-            val t = cell.trim()
-            val quoted = t.length >= 2 &&
-                ((t.startsWith("\"") && t.endsWith("\"")) || (t.startsWith("'") && t.endsWith("'")))
-            if (quoted) t.substring(1, t.length - 1).trim() else t
+    /**
+     * 切表格的一行。引号里的分隔符不算分隔符 ——
+     * `"a,1","p,1"` 是两格，不是四格；引号本身也一并剥掉。
+     */
+    private fun splitCells(line: String, delimiter: Char): List<String> {
+        val cells = mutableListOf<String>()
+        val buffer = StringBuilder()
+        var quote: Char? = null
+        for (ch in line) {
+            when {
+                quote != null -> if (ch == quote) quote = null else buffer.append(ch)
+                ch == '"' || ch == '\'' -> quote = ch
+                ch == delimiter -> {
+                    cells += buffer.toString().trim()
+                    buffer.clear()
+                }
+                else -> buffer.append(ch)
+            }
         }
+        cells += buffer.toString().trim()
+        return cells
+    }
 
     /**
      * JSON 对象里的一条记录。只取第一个 `{...}` —— 多个对象是"多条"，
@@ -1404,7 +1755,9 @@ object CredentialParser {
             Column.TITLE -> head
             null -> {
                 // 既不是字段名，就得像个平台名：纯中文短语，或全是字母的英文站名
-                if (!isPlainSiteName(head) && head.any { it.code < 0x2E80 }) return null
+                // （`steam:demo:pass`）。带数字的英文串多半是账号，不当平台名。
+                val asciiSite = head.length in 2..20 && head.all { it.isLetter() && it.code < 0x2E80 }
+                if (!isPlainSiteName(head) && !asciiSite) return null
                 head
             }
             else -> return null
@@ -1461,5 +1814,19 @@ object CredentialParser {
             out.append(String(pending.toByteArray(), Charsets.UTF_8))
         }
         return out.toString()
+    }
+
+    /**
+     * 字段名标注本身够不够用：`账号：a1，密码：b1` 是够的，
+     * `邮箱:demo@x.com:Mail#2024` 只认出一个字段就不够，要靠链式或连写补。
+     */
+    private fun kvCoversBoth(text: String): Boolean {
+        var hasUser = false
+        var hasPass = false
+        KV_REGEX.findAll(text).forEach { match ->
+            if (match.groups["user"] != null) hasUser = true
+            if (match.groups["pass"] != null) hasPass = true
+        }
+        return hasUser && hasPass
     }
 }
