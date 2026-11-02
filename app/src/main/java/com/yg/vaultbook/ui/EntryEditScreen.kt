@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,21 +34,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -62,7 +58,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -76,8 +71,10 @@ import com.yg.vaultbook.data.entity.AuditLogEntity
 import com.yg.vaultbook.domain.CustomFieldDraft
 import com.yg.vaultbook.domain.EntryDraft
 import com.yg.vaultbook.domain.PlainCategory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.security.SecureRandom
 
 /**
@@ -168,31 +165,33 @@ fun EntryEditScreen(
     val context = LocalContext.current
 
     /**
-     * 从剪贴板识别出的候选（还没填入）。
+     * 顶部粘贴框里的原文。
      *
-     * 非 null 时页面顶部会出现一张提示卡，用户点「填入」才真正写进输入框。
-     * **不做自动填入** —— 剪贴板里可能躺着一条与本次操作无关的账号密码，
-     * 默默替换用户正在输入的内容比不做要糟。
+     * 用户的原话：「顶部的'点击这里粘贴'应该设为一个文字框，而不应该是点击后
+     * 就自动获取了」。所以这里就是一个普通的多行输入框 —— 想贴什么、贴多长都行，
+     * 应用不再自己伸手去读剪贴板（除非用户点「读剪贴板」那一下）。
+     *
+     * 用 remember 而不是 rememberSaveable：这段文字里可能有明文密码，
+     * 不该被写进进程重建时保存的状态。
      */
-    var pasted by remember { mutableStateOf<CredentialParser.Result?>(null) }
-
-    /** 剪贴板里认出了好几组时的候选（点"看看"才进批量确认框）。 */
-    var clipboardBatch by remember { mutableStateOf<List<CredentialParser.Result>>(emptyList()) }
+    var pasteText by remember { mutableStateOf("") }
 
     /** 批量确认框里正在看的那几组；非 null 即对话框打开。 */
     var batchRows by remember { mutableStateOf<List<CredentialParser.Result>?>(null) }
 
     /**
-     * 手动粘贴对话框。
+     * 粘贴框里的识别结果，随输入实时更新。
      *
-     * 存在的唯一理由：**不读剪贴板**。部分国产 ROM（以及 Android 10+ 在
-     * 某些后台场景）会拒绝 `getPrimaryClip()`，那时「从剪贴板粘贴」按钮点了
-     * 只会弹"剪贴板是空的"，用户无从下手。这里给一个普通多行输入框 ——
-     * 用户在框里长按选「粘贴」，走的是系统自己的粘贴菜单，一定可用。
+     * 空文本框不跑解析；有内容时挪到后台线程 —— 用户可能一次贴进来几十行，
+     * 不该卡在绘制帧里。
      */
-    var manualPasteOpen by remember { mutableStateOf(false) }
-    var manualPasteText by remember { mutableStateOf("") }
-    var manualPasteError by remember { mutableStateOf<String?>(null) }
+    val pasteRows by produceState(emptyList<CredentialParser.Result>(), pasteText) {
+        value = if (pasteText.isBlank()) {
+            emptyList()
+        } else {
+            withContext(Dispatchers.Default) { CredentialParser.parseMany(pasteText) }
+        }
+    }
 
     DisposableEffect(existingPwd) {
         val snapshot = existingPwd
@@ -235,7 +234,6 @@ fun EntryEditScreen(
         if (title.isBlank()) {
             title = parsed.title ?: parsed.url ?: ""
         }
-        pasted = null
         error = null
     }
 
@@ -256,7 +254,6 @@ fun EntryEditScreen(
             applyParsed(many[0])
             return true
         }
-        pasted = null
         batchRows = many
         return true
     }
@@ -309,7 +306,7 @@ fun EntryEditScreen(
                     }
                 }
                 batchRows = null
-                clipboardBatch = emptyList()
+                pasteText = ""
                 if (skipped > 0) {
                     val msg = when {
                         saved == 0 -> "这 $skipped 条库里都已经有了"
@@ -328,50 +325,28 @@ fun EntryEditScreen(
     }
 
     /**
-     * 读剪贴板并识别。
+     * 顶部「读剪贴板」按钮：用户点这一下才读，读完原样放进文本框。
      *
-     * @return true 表示已经填上了；false 表示没读到或没认出。
-     *   不在这里写 [error]，交给调用方决定说什么 —— 同一个动作，
-     *   「粘贴框」和「手动粘贴框」要给的提示不一样。
+     * 读不到就明说，不再像早先那样"点一下自动读、读不到又悄悄弹另一个框" ——
+     * 那种设计让用户以为框本身会自己抓剪贴板。
      */
-    fun pasteFromClipboard(): Boolean {
-        val text = readClipboard() ?: return false
-        return parseAndApply(text)
-    }
-
-    /**
-     * 粘贴框的唯一动作：先读剪贴板，不行就直接把手动粘贴框推出来。
-     *
-     * 用户点的是一整块写着「点这里粘贴」的区域，他不该关心剪贴板能不能读。
-     * 所以这里必须一次点到位：能读就直接填上，读不到就立刻打开手动粘贴框，
-     * 而不是先弹一句"剪贴板是空的"让他自己去找下一个按钮 ——
-     * 那一句提示在最需要它的时候（ROM 禁止读剪贴板）等于死路。
-     */
-    fun smartPaste() {
-        if (pasteFromClipboard()) return
-        manualPasteText = ""
-        manualPasteError = null
-        manualPasteOpen = true
-    }
-
-    /** 手动粘贴对话框的「识别」按钮。 */
-    fun submitManualPaste() {
-        if (manualPasteText.isBlank()) {
-            manualPasteError = "先把文字粘贴进来"
+    fun readClipboardIntoField() {
+        val text = readClipboard()
+        if (text == null) {
+            Toast.makeText(context, "剪贴板里没有文字", Toast.LENGTH_SHORT).show()
             return
         }
-        if (parseAndApply(manualPasteText)) {
-            manualPasteOpen = false
-            manualPasteText = ""
-            manualPasteError = null
-            error = null
-        } else {
-            manualPasteError = "没从这段文字里认出账号或密码"
-        }
+        pasteText = text
+    }
+
+    /** 把认出的一条写进表单，然后清空粘贴框 —— 内容已经进表单了，留着只会碍事。 */
+    fun fillFromPaste(row: CredentialParser.Result) {
+        applyParsed(row)
+        pasteText = ""
     }
 
     // 从别的应用分享进来：直接识别并填入。
-    // 分享是明确意图（用户主动选了"发到VaultBook"），所以不像剪贴板那样只给提示卡。
+    // 分享是明确意图（用户主动选了发到VaultBook），所以不像剪贴板那样只给提示卡。
     LaunchedEffect(sharedText) {
         val raw = sharedText ?: return@LaunchedEffect
         if (!parseAndApply(raw)) {
@@ -402,23 +377,6 @@ fun EntryEditScreen(
                 }
             }
             loading = false
-        }
-    }
-
-    // 新建页进场时看一眼剪贴板，认出账号密码就在顶部提示一下（不自动填）。
-    // 只在还什么都没填时提示：用户从别处复制了东西、回来接着改旧条目时，
-    // 不该被莫名打扰。
-    LaunchedEffect(entryId) {
-        if (isEdit) return@LaunchedEffect
-        if (title.isNotBlank() || username.isNotBlank() ||
-            password.isNotBlank() || url.isNotBlank()
-        ) {
-            return@LaunchedEffect
-        }
-        val many = CredentialParser.parseMany(readClipboard())
-        when {
-            many.size > 1 -> clipboardBatch = many
-            many.size == 1 && many[0].hasCredential -> pasted = many[0]
         }
     }
 
@@ -547,68 +505,22 @@ fun EntryEditScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            // 粘贴区：一整块可点的卡片，而不是两个小文字按钮。
-            // 用户的原话是"留个框，点击即可手动粘贴或者从剪贴板粘贴"——
-            // 框比按钮更明确地表达了"这里是放东西的地方"。
+            // 粘贴区：一个真的能输入的多行文本框。
+            // 用户原话：「顶部的'点击这里粘贴'应该设为一个文字框，而不应该是点击后
+            // 就自动获取了」—— 所以这里不再"点一下偷偷读剪贴板"，而是给一个
+            // 看得见、放得进东西的框，识别结果在框下面实时更新。
             if (!isEdit) {
-                PasteBox(enabled = !busy, onClick = { smartPaste() })
+                PasteField(
+                    text = pasteText,
+                    onTextChange = { pasteText = it },
+                    rows = pasteRows,
+                    enabled = !busy,
+                    onReadClipboard = { readClipboardIntoField() },
+                    onClear = { pasteText = "" },
+                    onFill = { fillFromPaste(it) },
+                    onBatch = { batchRows = pasteRows }
+                )
                 Spacer(Modifier.height(14.dp))
-            }
-
-            pasted?.let { candidate ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                        Text(
-                            text = "剪贴板里有这些",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = describeCandidate(candidate),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                            TextButton(onClick = { pasted = null }) { Text("忽略") }
-                            TextButton(onClick = { applyParsed(candidate) }) { Text("填入") }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-
-            // 剪贴板里抄着好几组的时候，先给一张"有 N 组"的卡，而不是偷偷只填第一条。
-            if (clipboardBatch.size > 1) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                        Text(
-                            text = "剪贴板里有 ${clipboardBatch.size} 组账号密码",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = "可以一次全存进去，也可以只挑几条。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                            TextButton(onClick = { clipboardBatch = emptyList() }) { Text("忽略") }
-                            TextButton(onClick = { batchRows = clipboardBatch }) { Text("看看") }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
             }
 
             OutlinedTextField(
@@ -952,46 +864,6 @@ fun EntryEditScreen(
         }
     }
 
-    if (manualPasteOpen) {
-        AlertDialog(
-            onDismissRequest = { manualPasteOpen = false },
-            title = { Text("粘贴文字并识别") },
-            text = {
-                Column {
-                    Text(
-                        text = "在下面的框里长按 → 粘贴。这条路不读剪贴板，任何系统都能用。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = manualPasteText,
-                        onValueChange = { manualPasteText = it; manualPasteError = null },
-                        label = { Text("粘贴到这里") },
-                        placeholder = { Text("例如：账号：admin 密码：abc123") },
-                        minLines = 3,
-                        maxLines = 8,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    manualPasteError?.let {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { submitManualPaste() }) { Text("识别") }
-            },
-            dismissButton = {
-                TextButton(onClick = { manualPasteOpen = false }) { Text("取消") }
-            }
-        )
-    }
-
     batchRows?.let { rows ->
         BatchSaveDialog(
             rows = rows,
@@ -1107,15 +979,14 @@ private const val CLIPBOARD_CLEAR_MS: Long = 30_000L
 /**
  * 把识别结果拼成给人看的几行。
  *
- * 密码只显示点数，不显示原文 —— 这张卡出现在屏幕上时用户可能正在投屏或
- * 有旁人看着，而"识别对不对"只看账号和网址就能判断个大概。
+ * 密码照原文显示。早先是打点的，理由是怕旁人看见；但那点保护本来就没有意义 ——
+ * 原文就在上面的输入框里躺着，打点只让用户核对不了"切得对不对"，
+ * 而这正是这张卡唯一的作用。
  */
 private fun describeCandidate(candidate: CredentialParser.Result): String = buildList {
     candidate.title?.let { add("标题  $it") }
     candidate.username?.let { add("账号  $it") }
-    candidate.password?.let { pwd ->
-        add("密码  " + "•".repeat(pwd.length.coerceIn(6, 14)))
-    }
+    candidate.password?.let { add("密码  $it") }
     candidate.url?.let { add("网址  $it") }
 }.joinToString("\n")
 
@@ -1159,46 +1030,138 @@ private fun generatePassword(length: Int = 20): String {
 /**
  * 新建页顶部的粘贴区。
  *
- * 做成一块"放东西的框"而不是两个文字按钮，理由是用户的原话就是"留个框"：
- * 框有面积、有底色、整块可点，一眼能看出"东西可以往这里放"；
- * 而两个 14sp 的 TextButton 挤在右上角，用久了根本想不起来它们存在。
+ * 早先这里是一整块可点的卡片，点一下就去读剪贴板 —— 用户的反馈是
+ * 「应该设为一个文字框，而不应该是点击后就自动获取了」。现在它是一个真正的
+ * 多行输入框：想贴就贴、想手打就手打，读写剪贴板变成一个需要单独点的动作。
  *
- * 点击行为由 [smartPaste] 决定：能读剪贴板就直接填，读不到就把手动粘贴框推出来。
+ * 框下面实时给识别结果，分三种：
+ * - 什么都没认出来：只说一句"一行一条最稳妥"，不弹错误；
+ * - 认出 1 条：把结果摊开（密码打点），点「填入表单」才写进去；
+ * - 认出多条：只报数量，点「看看」进批量确认框 —— 用户抄了十条进来，
+ *   只填一条等于把其余九条丢了。
+ *
+ * 特意不做"边打边自动填"：用户手打时每敲下一个数字都会触发一次识别，
+ * 表单会在眼皮底下被反复改写。
  */
 @Composable
-private fun PasteBox(enabled: Boolean, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        interactionSource = interaction,
-        modifier = Modifier
-            .fillMaxWidth()
-            .pressScale(interaction, 0.98f)
-    ) {
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+private fun PasteField(
+    text: String,
+    onTextChange: (String) -> Unit,
+    rows: List<CredentialParser.Result>,
+    enabled: Boolean,
+    onReadClipboard: () -> Unit,
+    onClear: () -> Unit,
+    onFill: (CredentialParser.Result) -> Unit,
+    onBatch: () -> Unit
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             PasteGlyph(
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(24.dp)
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
             )
-            Spacer(Modifier.width(13.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = "点这里粘贴",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = "自动认出账号和密码 · 读不到剪贴板会打开手动粘贴框",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
-                )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "粘贴或输入账号密码",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = text,
+            onValueChange = onTextChange,
+            placeholder = {
+                // 示例一律用编造的值。真实密码绝不该出现在界面文案、截图或仓库里。
+                Text("一行一条，也可以写成「账号：xxx 密码：xxx」\n例如：某某平台密码 abcd1234")
+            },
+            minLines = 3,
+            maxLines = 7,
+            enabled = enabled,
+            // 等宽字体：密码里 0 与 O、1 与 l 的差别，一眼能看出来
+            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onReadClipboard, enabled = enabled) {
+                Text("读剪贴板")
+            }
+            Spacer(Modifier.weight(1f))
+            if (text.isNotEmpty()) {
+                TextButton(onClick = onClear, enabled = enabled) { Text("清空") }
+            }
+        }
+
+        when {
+            text.isBlank() -> Unit
+            rows.isEmpty() -> Text(
+                text = "还没认出账号或密码。一行一条最稳妥，每行写成「平台名 + 密码」。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            rows.size == 1 -> SingleCandidateCard(rows[0], enabled) { onFill(rows[0]) }
+            else -> BatchCandidateCard(rows.size, enabled, onBatch)
+        }
+    }
+}
+
+/** 认出 1 条时摊开给人核对。密码只显示点数，见 [describeCandidate]。 */
+@Composable
+private fun SingleCandidateCard(
+    row: CredentialParser.Result,
+    enabled: Boolean,
+    onFill: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(
+                text = "认出这一条",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = describeCandidate(row),
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace
+            )
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onFill, enabled = enabled) { Text("填入表单") }
+            }
+        }
+    }
+}
+
+/** 认出多条时只报数量，明细留给批量确认框。 */
+@Composable
+private fun BatchCandidateCard(count: Int, enabled: Boolean, onBatch: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(
+                text = "认出 $count 组账号密码",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "可以一次全存进去，也可以只挑几条。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onBatch, enabled = enabled) { Text("看看") }
             }
         }
     }

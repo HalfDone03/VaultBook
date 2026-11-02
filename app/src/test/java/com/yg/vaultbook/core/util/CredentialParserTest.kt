@@ -317,6 +317,103 @@ class CredentialParserTest {
         assertEquals(2, rows.size)
         assertTrue(rows.all { !it.password.isNullOrEmpty() })
     }
+    // ── 「名称紧贴密码」的连写（用户 2026-11-02 报的 bug）──────────
+
+    /**
+     * 用户报的形状：三行「平台名紧贴密码」，既没空格也没冒号。
+     *
+     * 早先三条切分规则全都认不出，最后退化成「第一行当账号、第二行当密码、
+     * 第三行丢掉」——标题丢失、账号变成第一行整行。
+     *
+     * 这里用编造的示例数据，形状与用户给的一致，但值不是任何人的真实密码。
+     */
+    @Test
+    fun `三行连写拆成三条`() {
+        val text = """
+            云盘账户密码Zx8Kq2Lm7V
+            云盘Zx8kq2lm7v.
+            邮箱平台密码Zx8kq2lm7v.
+        """.trimIndent()
+
+        val rows = CredentialParser.parseMany(text)
+        assertEquals(3, rows.size)
+
+        assertEquals("云盘账户", rows[0].title)
+        assertEquals("Zx8Kq2Lm7V", rows[0].password)
+        assertNull(rows[0].username)
+
+        assertEquals("云盘", rows[1].title)
+        assertEquals("Zx8kq2lm7v.", rows[1].password)
+
+        assertEquals("邮箱平台", rows[2].title)
+        assertEquals("Zx8kq2lm7v.", rows[2].password)
+    }
+
+    @Test
+    fun `单行连写拆出标题和密码`() {
+        val r = CredentialParser.parse("云盘账户密码Zx8Kq2Lm7V")!!
+        assertEquals("云盘账户", r.title)
+        assertEquals("Zx8Kq2Lm7V", r.password)
+        assertNull(r.username)
+        assertTrue(r.hasCredential)
+    }
+
+    /** 名称里写的是「账号」而不是「密码」，尾巴又是手机号 → 该进账号框。 */
+    @Test
+    fun `连写里的账号标签按账号处理`() {
+        val r = CredentialParser.parse("支付宝账号13800138000")!!
+        assertEquals("支付宝", r.title)
+        assertEquals("13800138000", r.username)
+        assertNull(r.password)
+    }
+
+    /** 尾巴是纯数字时不敢当密码：`淘宝13800138000` 多半是账号。 */
+    @Test
+    fun `连写里纯数字的尾巴当账号`() {
+        val r = CredentialParser.parse("淘宝13800138000")!!
+        assertEquals("淘宝", r.title)
+        assertEquals("13800138000", r.username)
+        assertNull(r.password)
+    }
+
+    /**
+     * 「账户」这两个字本身是平台名的一部分时不能削掉。
+     *
+     * `云盘账户Zx8kq2lm7v` 的标题必须还是「云盘账户」，而不是「云盘」；
+     * 只有明确写了「密码」当字段名时才剥（见上面第一条用例）。
+     */
+    @Test
+    fun `平台名自带的账户二字保留`() {
+        val r = CredentialParser.parse("云盘账户Zx8kq2lm7v")!!
+        assertEquals("云盘账户", r.title)
+        assertEquals("Zx8kq2lm7v", r.password)
+    }
+
+    /** 有空格的一行一条是"多列"形状，不能被连写规则抢走。 */
+    @Test
+    fun `带空格的列仍按列拆`() {
+        val text = """
+            淘宝 13800138000 p@ssw0rd
+            京东 myjd 12345678
+        """.trimIndent()
+
+        val rows = CredentialParser.parseMany(text)
+        assertEquals(2, rows.size)
+        assertEquals("淘宝", rows[0].title)
+        assertEquals("13800138000", rows[0].username)
+        assertEquals("p@ssw0rd", rows[0].password)
+        assertEquals("京东", rows[1].title)
+    }
+
+    /** 带冒号的行属于 key: value，连写规则必须让它先走。 */
+    @Test
+    fun `带冒号的行仍走 key value`() {
+        val r = CredentialParser.parse("密码：abc123")!!
+        assertEquals("abc123", r.password)
+        assertNull(r.title)
+        assertNull(r.username)
+    }
+
     @Test
     fun `isEmpty 与 hasCredential 的语义`() {
         val empty = CredentialParser.Result()
