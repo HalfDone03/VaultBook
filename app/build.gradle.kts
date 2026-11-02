@@ -57,8 +57,8 @@ android {
         applicationId = "com.yg.vaultbook"
         minSdk = 26          // Autofill Framework 起始版本
         targetSdk = 35
-        versionCode = 200
-        versionName = "1.10"
+        versionCode = 210
+        versionName = "1.11"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 

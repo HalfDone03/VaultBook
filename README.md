@@ -7,10 +7,10 @@
 | 项 | 内容 |
 |---|---|
 | 应用名 / 项目名 | VaultBook |
-| 版本 | 1.10（versionCode 200） |
+| 版本 | 1.11（versionCode 210） |
 | 包名 | `com.yg.vaultbook` |
 | 系统 | Android 8.0（API 26）～ API 35 |
-| 安装包 | `dist/VaultBook-1.10.apk`，7.07 MB，只含 `arm64-v8a` |
+| 安装包 | `dist/VaultBook-1.11.apk`，7.09 MB，只含 `arm64-v8a` |
 
 ---
 
@@ -42,6 +42,8 @@
 | 表格粘贴 | 从 Excel、表格软件、CSV 里整块复制也行：用逗号、制表符、分号、竖线分隔，首行是表头（中英文都认），按列名装填，备注列进备注；没有表头但行首是列名的（`平台|知乎|账号|x|密码|y`）也认，同一段里分号竖线逗号混用都行 |
 | JSON / XML 粘贴 | `[{"platform":"…","account":"…","password":"…"}]` 这种整段 JSON 直接粘，外面再包一层 `{"accounts": [ … ] }` 也行，键名叫什么都行（site/账号/用户名/user/pass……），转义和数字型密码都能还原；`<account><platform>微信</platform><user>xxx</user><pass>yyy</pass></account>` 这种 XML 同样认 |
 | 链接带账号 | `https://user:pass@host/login`、`ftp://…` 这种把账号密码写在链接里的，能从链接里抠出来并自动解码 `%40` |
+| 连接串与命令行 | `postgres://user:pass@host:5432/db`、`redis://:pass@host`（没写账号也认）、`mysql -u 用户名 -p 密码` 这种也从里面抠出来，密码里带 `@` `#` 不会截断 |
+| HTML 表格 | 从网页或文档里复制出来的 `<tr><td>` 表格同样能按列装填，Markdown 表格的 `| --- |` 分隔行会跳过 |
 | 多组粘贴 | 一次粘好几条（一行一条 / 空行分段 / 横线分隔 / 连着写 / 账号密码上下交替都行），粘贴框下面把每一条的标题、账号、密码、备注按行摊开列出来，点哪条就把哪条填进表单，每条都能单独对调账号密码，也能「一次全存」进预览再逐条勾选（可勾「只存标题和密码」，重复的不再存第二遍） |
 | 连写识别 | `某某平台密码abcd1234`、`账号admin密码abc123` 这种直接粘在一起的，按「中文/数字交界」切开；`抖音12313213` 会把平台名剥出来当标题，不整串当账号 |
 | 系统分享 | 在别的应用选中文字 → 分享到 VaultBook，直接进新建页 |
@@ -86,7 +88,7 @@
 从 [Releases](https://github.com/HalfDone03/VaultBook/releases) 下载 APK，或本地构建后用 adb：
 
 ```bash
-adb install -r dist/VaultBook-1.10.apk
+adb install -r dist/VaultBook-1.11.apk
 ```
 
 或双击 `install-apk.cmd`（自动找 adb 与最新安装包），也可以把 APK 拷到手机上点开装。
@@ -152,7 +154,7 @@ app/src/main/java/com/yg/vaultbook/
 ./gradlew :app:testDebugUnitTest
 ```
 
-30 个测试类、501 个用例：解析（键值对、冒号链、表格、JSON、XML、括号包值、查询串、交替行、链接、连写）、加密、匹配打分、备份格式、CSV、拼音、密码强度、TOTP、排序与去重签名、系统服务组件名解析等。
+31 个测试类、502 个用例：解析（键值对、冒号链、表格、JSON、XML、HTML 表格、括号包值、查询串、交替行、链接与连接串、命令行、连写）、加密、匹配打分、备份格式、CSV、拼音、密码强度、TOTP、排序与去重签名、系统服务组件名解析等。
 
 ---
 
