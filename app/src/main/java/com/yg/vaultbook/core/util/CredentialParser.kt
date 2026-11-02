@@ -85,8 +85,13 @@ object CredentialParser {
         "登录账号|登录名|用户名|用户账号|用户|账号|帐号|账户|手机号码|手机号|" +
             "邮箱地址|邮箱|username|userid|account|login|email|phone|mobile|user"
 
+    /**
+     * `pass` 放在最后：`password`/`passwd`/`passcode` 都比它长，
+     * 交替分支先试长的，`pass` 只兜住 JDBC 串、JSON 键名那种裸 `pass=`
+     * （`{"site":"Steam","user":"x","pass":"y"}` 早先认不出密码就是因为漏了它）。
+     */
     private const val PASS_LABELS =
-        "登录密码|支付密码|交易密码|password|passwd|passcode|pwd|secret|密码|口令"
+        "登录密码|支付密码|交易密码|password|passwd|passcode|pwd|secret|密码|口令|pass"
 
     private const val URL_LABELS =
         "website|domain|网址|网站|链接|地址|url|site|link|host"
@@ -178,6 +183,36 @@ object CredentialParser {
     /** 表格里的分隔符候选，按"谁更像列分隔符"的顺序试。 */
     private val TABLE_DELIMITERS = listOf(',', '\t', ';', '|')
 
+    /**
+     * XML 里成对的标签：`<platform>微信</platform>`。
+     *
+     * 只认"紧挨着的一对"，中间不许再夹标签 —— 账号导出文件的结构就那么浅，
+     * 认得太深反而会把整段 XML 当成一个值。
+     */
+    private val XML_PAIR_REGEX = Regex("<([A-Za-z_][\\w.\\-]{0,30})>([^<>]{0,500})</\\1>")
+
+    /** `平台(淘宝) 账号(xx) 密码(yy)` —— 值被括号包起来的写法。 */
+    private val PAREN_PAIR_REGEX = Regex(
+        "([\\u4e00-\\u9fa5A-Za-z_][\\u4e00-\\u9fa5A-Za-z0-9_]{0,20})\\s*[(（]([^()（）\\n]{1,200})[)）]"
+    )
+
+    /** 一行自成一条、行首写着列名时可能用到的分隔符，按"切得最碎"挑一个。 */
+    private val ROW_DELIMITERS = charArrayOf('|', ',', '，', ';', '；', '\t', '&')
+
+    /**
+     * 行首列名之后的几个值按这个顺序填。
+     *
+     * 备注排在网址前面：手抄行几乎都是「平台 账号 密码 备注」，
+     * 网址露头的情况极少，把第四格当网址反而会得到一条打不开的链接。
+     */
+    private val ROW_ORDER = listOf(Column.TITLE, Column.USER, Column.PASS, Column.NOTES, Column.URL)
+
+    /** 一段没有空白的英文数字串（账号、手机号、QQ 号都长这样）。 */
+    private val ACCOUNT_TOKEN = Regex("^[A-Za-z0-9_.@+\\-]{2,64}$")
+
+    /** 写成邮箱的样子：`a@b.com`。用来把"账号行"和"密码行"分开。 */
+    private val EMAIL_SHAPE = Regex("^[^@\\s]{1,64}@[^@\\s]{1,64}\\.[A-Za-z]{2,12}$")
+
     /** 表头/JSON 键名归一化后能认出的列。 */
     private enum class Column { TITLE, USER, PASS, URL, NOTES, IGNORE }
 
@@ -255,6 +290,12 @@ object CredentialParser {
         // JSON 对象和表格行里字段名是显式的，交给下面按位置猜的规则，
         // 只会把引号、逗号当成值的一部分（`username="account":"x"` 那种鬼东西）。
         jsonRecord(text)?.takeIf { it.hasCredential }?.let { return it }
+        // XML、括号包值、行首带列名的一行一条，字段名同样是显式的。
+        // 这三种形状交给"按位置猜"只会得到半截值：
+        // `<user>wx</user>` 会被当成账号、`账号(xx)` 会连标签一起进用户名。
+        xmlRecords(text)?.firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
+        parenRecords(text)?.firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
+        labeledRows(text)?.firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
         tableRecords(text).firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
 
         // 一行的 `标签:账号:密码`（`微信:demo_wx_001:Wx@123456`）。
@@ -475,8 +516,12 @@ object CredentialParser {
 
         val text = raw.replace("\r\n", "\n").replace('\r', '\n')
 
-        // 0) JSON 数组 / 一整张表：字段名是显式的，别再让"按位置猜"的规则去猜
+        // 0) JSON 数组 / XML / 括号包值 / 行首带列名 / 一整张表：
+        //    字段名是显式的，别再让"按位置猜"的规则去猜
         jsonRecords(text)?.let { if (it.size >= 2) return it }
+        xmlRecords(text)?.let { if (it.size >= 2) return it }
+        parenRecords(text)?.let { if (it.size >= 2) return it }
+        labeledRows(text)?.let { if (it.size >= 2) return it }
         tableRecords(text).let { if (it.size >= 2) return it }
 
         // 1) 分隔线分段：`---` 之类在记事本里就是"下一条"的意思
@@ -489,6 +534,11 @@ object CredentialParser {
         val lines = text.split('\n')
             .map { it.stripLineIndex().edgeTrim() }
             .filter { it.isNotEmpty() && !isSeparatorLine(it) && !isHeaderLine(it) }
+
+        // 0.5) 账号、密码上下交替抄：`a@b.com` / `Mail@123` / `c@d.com` / `Mail#654`。
+        //      这种形状没有任何一行能自己拆开、也没有重复的键可切，
+        //      全部规则都认不出，最后只拼出第一条、后两行整段丢掉。
+        alternatingRecords(lines)?.let { return it }
 
         // 1) 一行一条的「连写」：`云盘账户密码Zx8Kq2Lm7V` 这种既没空格也没冒号，
         //    下面几条规则全都认不出（每行切不出 ≥2 段、没有空行、没有重复的 key），
@@ -694,6 +744,10 @@ object CredentialParser {
                     // 说明，不是账号密码。真实的账号或密码至少带字母/数字/符号。
                     if (isPlainSiteName(head) && isPlainSiteName(tail)) {
                         Triple(null, null, null)
+                    } else if (isLabelSlot(head) && isLabelSlot(tail)) {
+                        // `平台(必填) 账号(必填)`：两段都是「列名(占位说明)」，
+                        // 这是表单的字段提示，不是账号密码。
+                        Triple(null, null, null)
                     } else if (isPlainSiteName(head) && tail.any { it.isDigit() }) {
                         Triple(tail, null, head)
                     } else {
@@ -844,14 +898,17 @@ object CredentialParser {
     }
 
     /**
-     * 值两端的收尾：空白、全角空格、不换行空格，以及粘进来的逗号分号竖线。
+     * 值两端的收尾：空白、全角空格、不换行空格，以及粘进来的逗号分号竖线和 `&`。
+     *
+     * `&` 是查询串的分隔符：`password=Wb@123456&note=参数测试` 里不剥掉的话，
+     * 密码会变成 `Wb@123456&`（用户反馈的原话是「`&` 这个符号是别进去了」）。
      *
      * 只动两端，中间的字符一个不碰 —— 密码里带空格是合法的。
      */
     private fun String.cleanValue(): String =
         trim()
             .trim('\u3000', '\u00A0')
-            .trim(',', '，', ';', '；', '|')
+            .trim(',', '，', ';', '；', '|', '&')
 
     /** 同上，但更保守：只去空白类字符，不去标点。 */
     private fun String.edgeTrim(): String = trim().trim('\u3000', '\u00A0')
@@ -887,6 +944,251 @@ object CredentialParser {
         return v in HEADER_WORDS
     }
 
+    // ── XML / 括号包值 / 行首列名 / 交替抄写 ────────────────────
+
+    /**
+     * `<account><platform>微信</platform><user>wx</user><pass>Wx@123</pass></account>`
+     *
+     * 账号导出工具常给这种浅层 XML。切块的锚点取**第一个字段名**：同名字段再次
+     * 出现就是下一条记录的开头 —— 每条记录的字段是同一套，这比按 `</account>`
+     * 切省事，也不依赖容器标签叫什么。
+     */
+    private fun xmlRecords(text: String): List<Result>? {
+        if (!text.contains('<') || !text.contains("</")) return null
+        val pairs = XML_PAIR_REGEX.findAll(text)
+            .map { it.groupValues[1].lowercase() to it.groupValues[2].trim() }
+            .toList()
+        if (pairs.size < 2) return null
+
+        val anchor = pairs.first().first
+        val chunks = arrayListOf<MutableList<Pair<String, String>>>()
+        var current = arrayListOf<Pair<String, String>>()
+        for (pair in pairs) {
+            if (pair.first == anchor && current.isNotEmpty()) {
+                chunks.add(current)
+                current = arrayListOf()
+            }
+            current.add(pair)
+        }
+        if (current.isNotEmpty()) chunks.add(current)
+
+        val records = chunks.mapNotNull { chunk -> resultOfPairs(chunk) }
+        return records.takeIf { it.isNotEmpty() }
+    }
+
+    /** 一串「字段名 → 值」组装成一条记录。字段名一个都认不出时返回 null。 */
+    private fun resultOfPairs(pairs: List<Pair<String, String>>): Result? {
+        var username: String? = null
+        var password: String? = null
+        var url: String? = null
+        var title: String? = null
+        var notes: String? = null
+        var recognized = false
+        for ((key, raw) in pairs) {
+            val value = raw.trim().ifBlank { null } ?: continue
+            if (isLabelWord(value)) continue
+            when (columnOf(key)) {
+                Column.USER -> if (username == null) {
+                    username = value
+                    recognized = true
+                }
+                Column.PASS -> if (password == null) {
+                    password = value
+                    recognized = true
+                }
+                Column.TITLE -> if (title == null) {
+                    title = value
+                    recognized = true
+                }
+                Column.URL -> if (url == null) {
+                    url = cleanUrl(value) ?: value
+                    recognized = true
+                }
+                Column.NOTES -> if (notes == null) {
+                    notes = value
+                    recognized = true
+                }
+                Column.IGNORE, null -> Unit
+            }
+        }
+        if (!recognized) return null
+        return Result(
+            username = username,
+            password = password,
+            url = url,
+            title = title,
+            notes = notes
+        ).takeIf { it.hasCredential }
+    }
+
+    /**
+     * `平台(淘宝) 账号(taobao_bracket) 密码(Tb@123456)` —— 值被括号包起来。
+     *
+     * 早先括号被当成值的一部分：标题是「平台(淘宝)」、账号是「账号(taobao_bracket)」，
+     * 用户看到的原话是「识别的标签识别成『平台(京东）』了」。
+     */
+    private fun parenRecords(text: String): List<Result>? {
+        val records = text.split('\n').mapNotNull { parenRecord(it.stripLineIndex().edgeTrim()) }
+        return records.takeIf { it.isNotEmpty() }
+    }
+
+    private fun parenRecord(line: String): Result? {
+        if (line.isEmpty()) return null
+        val matches = PAREN_PAIR_REGEX.findAll(line).toList()
+        if (matches.size < 2) return null
+        val pairs = matches.mapNotNull { match ->
+            val label = match.groupValues[1]
+            val value = match.groupValues[2].trim()
+            if (value.isEmpty() || columnOf(label) == null) null else label to value
+        }
+        if (pairs.size < 2) return null
+        // 没有密码就不算凭据：`平台(必填) 账号(必填)` 这种表格式说明也会长成这样，
+        // 认下去只会得到一条"账号叫『必填』"的假记录。
+        val result = resultOfPairs(pairs) ?: return null
+        return result.takeIf { it.password != null }
+    }
+
+    /**
+     * 一行自成一条、行首写着列名：`平台|知乎|zhihu_mix|Zh#654321|竖线`。
+     *
+     * 同一段里每行可以用不同的分隔符（分号、竖线、逗号混着来），所以不能当表格 ——
+     * 表格要求全段同一个分隔符 + 单独一行表头。行首那个列名就是「从这里开始按
+     * [ROW_ORDER] 的顺序填空」的起点。
+     */
+    private fun labeledRow(line: String): Result? {
+        if (line.isEmpty() || isSeparatorLine(line) || isHeaderLine(line)) return null
+        var cells: List<String> = emptyList()
+        for (delimiter in ROW_DELIMITERS) {
+            val candidate = splitCells(line, delimiter)
+            if (candidate.size > cells.size) cells = candidate
+        }
+        if (cells.size < 3) return null
+
+        var username: String? = null
+        var password: String? = null
+        var url: String? = null
+        var title: String? = null
+        var notes: String? = null
+        var cursor: Column? = null
+        var filled = 0
+
+        cells.forEachIndexed { index, rawCell ->
+            val cell = rawCell.trim()
+            if (cell.isEmpty()) return@forEachIndexed
+
+            // 单元格自带列名：`平台=微博`、`密码:abc`
+            val inline = splitCellLabel(cell)
+            if (inline != null) {
+                val column = columnOf(inline.first) ?: return@forEachIndexed
+                when (column) {
+                    Column.USER -> if (username == null) username = inline.second
+                    Column.PASS -> if (password == null) password = inline.second
+                    Column.TITLE -> if (title == null) title = inline.second
+                    Column.URL -> if (url == null) url = cleanUrl(inline.second) ?: inline.second
+                    Column.NOTES -> if (notes == null) notes = inline.second
+                    Column.IGNORE -> Unit
+                }
+                cursor = nextColumn(column)
+                filled += 1
+                return@forEachIndexed
+            }
+
+            val head = columnOf(cell)
+            if (index == 0) {
+                // 行首不是列名，就不是这种形状
+                if (head == null) return null
+                cursor = head
+                filled += 1
+                return@forEachIndexed
+            }
+            if (head != null) {
+                // 行中间又冒出一个列名：从它开始重新数
+                cursor = head
+                return@forEachIndexed
+            }
+            val column = cursor ?: return null
+            when (column) {
+                Column.USER -> if (username == null) username = cell
+                Column.PASS -> if (password == null) password = cell
+                Column.TITLE -> if (title == null) title = cell
+                Column.URL -> if (url == null) url = cleanUrl(cell) ?: cell
+                Column.NOTES -> if (notes == null) notes = cell
+                Column.IGNORE -> Unit
+            }
+            cursor = nextColumn(column)
+            filled += 1
+        }
+
+        if (filled < 2) return null
+        return Result(
+            username = username,
+            password = password,
+            url = url,
+            title = title,
+            notes = notes
+        ).takeIf { it.hasCredential }
+    }
+
+    private fun labeledRows(text: String): List<Result>? {
+        val rows = text.split('\n')
+            .map { it.stripLineIndex().edgeTrim() }
+            .filter { it.isNotEmpty() }
+            .mapNotNull { labeledRow(it) }
+        return rows.takeIf { it.isNotEmpty() }
+    }
+
+    private fun nextColumn(after: Column): Column? {
+        val index = ROW_ORDER.indexOf(after)
+        return if (index < 0 || index + 1 >= ROW_ORDER.size) null else ROW_ORDER[index + 1]
+    }
+
+    /** 一个单元格本身就是「列名 = 值」。列名认不出时返回 null（那它只是普通的值）。 */
+    private fun splitCellLabel(cell: String): Pair<String, String>? {
+        val index = cell.indexOfFirst { it in "=＝:：" }
+        if (index <= 0) return null
+        val label = cell.substring(0, index).trim()
+        val value = cell.substring(index + 1).trim()
+        if (label.isEmpty() || value.isEmpty()) return null
+        if (columnOf(label) == null) return null
+        return label to value
+    }
+
+    /**
+     * 账号一行、密码一行，交替往下抄：`demo@x.com` / `Mail@123456` / `demo2@x.com` / `Mail#654`。
+     *
+     * 奇数位（第 1、3、5…行）必须像账号，偶数位必须像密码，两组都满足才认。
+     * 只认 4 行以上的偶数行数 —— 两行的「账号 + 密码」老规则已经认得出，
+     * 这里再加一道只会抢走别的形状。
+     */
+    private fun alternatingRecords(lines: List<String>): List<Result>? {
+        if (lines.size < 4 || lines.size % 2 != 0) return null
+        val records = arrayListOf<Result>()
+        var index = 0
+        while (index < lines.size) {
+            val account = lines[index]
+            val secret = lines[index + 1]
+            if (!looksLikeAccount(account) || !looksLikeSecret(secret)) return null
+            records.add(Result(username = account, password = secret))
+            index += 2
+        }
+        return records.takeIf { it.isNotEmpty() }
+    }
+
+    /** 像账号：邮箱、纯数字（手机号/QQ 号），或一段没有空白的英文数字串。 */
+    private fun looksLikeAccount(line: String): Boolean {
+        if (line.isEmpty() || line.any { it.isWhitespace() }) return false
+        if (line.any { it.code >= 0x2E80 }) return false
+        return ACCOUNT_TOKEN.matches(line)
+    }
+
+    /** 像密码：不带中文、不写成邮箱、长度够、字母数字都有。 */
+    private fun looksLikeSecret(line: String): Boolean {
+        if (line.isEmpty() || line.any { it.isWhitespace() }) return false
+        if (line.any { it.code >= 0x2E80 }) return false
+        if (EMAIL_SHAPE.matches(line)) return false
+        return line.length >= 6 && line.any { it.isLetter() } && line.any { it.isDigit() }
+    }
+
     // ── 表格与 JSON ─────────────────────────────────────────────
 
     /**
@@ -915,6 +1217,17 @@ object CredentialParser {
             else -> null
         }
     }
+
+    /**
+     * `平台(必填)`、`账号（选填）`：列名后面挂一段占位说明，本身不是值。
+     * 表单说明、网页截图里的字段提示常是这个形状，不能当账号密码收。
+     */
+    private fun isLabelSlot(text: String): Boolean {
+        val m = PAREN_PAIR_REGEX.matchEntire(text.trim()) ?: return false
+        val column = columnOf(m.groupValues[1])
+        return column != null && column != Column.IGNORE
+    }
+
 
     /**
      * 一整张表：第一行是表头，后面每行一条记录。
