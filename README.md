@@ -7,10 +7,10 @@
 | 项 | 内容 |
 |---|---|
 | 应用名 / 项目名 | VaultBook |
-| 版本 | 1.11（versionCode 210） |
+| 版本 | 1.12（versionCode 220） |
 | 包名 | `com.yg.vaultbook` |
 | 系统 | Android 8.0（API 26）～ API 35 |
-| 安装包 | `dist/VaultBook-1.11.apk`，7.09 MB，只含 `arm64-v8a` |
+| 安装包 | `dist/VaultBook-1.12.apk`，7.09 MB，只含 `arm64-v8a` |
 
 ---
 
@@ -88,7 +88,7 @@
 从 [Releases](https://github.com/HalfDone03/VaultBook/releases) 下载 APK，或本地构建后用 adb：
 
 ```bash
-adb install -r dist/VaultBook-1.11.apk
+adb install -r dist/VaultBook-1.12.apk
 ```
 
 或双击 `install-apk.cmd`（自动找 adb 与最新安装包），也可以把 APK 拷到手机上点开装。

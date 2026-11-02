@@ -1514,7 +1514,843 @@ class CredentialParserCorpusTest {
             "备注是一句带逗号的话",
             "账号：lg_2 密码：Lg@111111 备注：备用账号，平时不用",
             listOf(Row(null, "lg_2", "Lg@111111", "备用账号，平时不用"))
-        )
+        ),
+        // 第二十组：浏览器密码管理器导出的、以及各种把字段名括起来或加前缀的写法
+        Case(
+            "浏览器导出的四列带表头",
+            "name,url,username,password\n淘宝,https://taobao.com,tb_c1,Tb@111111",
+            listOf(Row("淘宝", "tb_c1", "Tb@111111"))
+        ),
+        Case(
+            "同一字段名带平台前缀",
+            "淘宝账号 tb_20 淘宝密码 Tb@202020",
+            listOf(Row("淘宝", "tb_20", "Tb@202020"))
+        ),
+        Case(
+            "字段名被方头括号包着",
+            "【账号】tb_21\n【密码】Tb@212121",
+            listOf(Row(null, "tb_21", "Tb@212121"))
+        ),
+        Case(
+            "两对键值用斜杠隔开",
+            "用户名: 18600001211 / 密码: Ph@111111",
+            listOf(Row(null, "18600001211", "Ph@111111"))
+        ),
+        Case(
+            "链接在前字段在后",
+            "https://example.com/login 用户名 example_13 密码 Ex@131313",
+            listOf(Row(null, "example_13", "Ex@131313"))
+        ),
+        Case(
+            "裸域名打头字段在后",
+            "taobao.com 用户名 tb_14 密码 Tb@141414",
+            listOf(Row(null, "tb_14", "Tb@141414"))
+        ),
+        Case(
+            "分号串成一行还带备注",
+            "账号=acc_15;密码=Pw@151515;备注=老账号",
+            listOf(Row(null, "acc_15", "Pw@151515", "老账号"))
+        ),
+        Case(
+            "登录账号登录密码再加二次密码",
+            "平台：淘宝\n登录账号：tb_16\n登录密码：Tb@161616",
+            listOf(Row("淘宝", "tb_16", "Tb@161616"))
+        ),
+        Case(
+            "密码写在账号前面两行",
+            "密码：Pw@171717\n账号：acc_17",
+            listOf(Row(null, "acc_17", "Pw@171717"))
+        ),
+        Case(
+            "斜杠分开再跟平台名",
+            "admin_18 / Pa@ss1818 / 淘宝",
+            listOf(Row("淘宝", "admin_18", "Pa@ss1818"))
+        ),
+        Case(
+            "制表符三格没表头",
+            "淘宝\tadmin_19\tPa@ss1919",
+            listOf(Row("淘宝", "admin_19", "Pa@ss1919"))
+        ),
+        Case(
+            "逗号三格带引号没表头",
+            "\"淘宝\",\"admin_20\",\"Pa@ss2020\"",
+            listOf(Row("淘宝", "admin_20", "Pa@ss2020"))
+        ),
+        Case(
+            "空格分开三样还带备注二字",
+            "账号 admin_21 密码 Pa@ss2121 备注 备用",
+            listOf(Row(null, "admin_21", "Pa@ss2121", "备用"))
+        ),
+        Case(
+            "手机号配服务密码",
+            "手机号：13800001313\n服务密码：Svc@1313",
+            listOf(Row(null, "13800001313", "Svc@1313"))
+        ),
+        Case(
+            "电子邮箱配登录密码",
+            "电子邮箱：mail_14@example.com\n登录密码：Ml@141414",
+            listOf(Row(null, "mail_14@example.com", "Ml@141414"))
+        ),
+        Case(
+            "账号名配登录口令",
+            "账号名：u_15\n登录口令：Pw@151515",
+            listOf(Row(null, "u_15", "Pw@151515"))
+        ),
+        Case(
+            "平台名这种写法",
+            "平台名：淘宝\n帐号：acc_18\n登录密码：Pw@181818",
+            listOf(Row("淘宝", "acc_18", "Pw@181818"))
+        ),
+        Case(
+            "平台名是数字",
+            "12306 账号 rail_19 密码 Rl@191919",
+            listOf(Row("12306", "rail_19", "Rl@191919"))
+        ),
+        Case(
+            "冒号后面先空一格再给值",
+            "账号： acc_22\n密码： Pw@222222",
+            listOf(Row(null, "acc_22", "Pw@222222"))
+        ),
+        Case(
+            "账号密码之间只隔一个等号",
+            "账号=acc_23密码=Pw@232323",
+            listOf(Row(null, "acc_23", "Pw@232323"))
+        ),
+        // ── 第二十一组：换着写法抄同一件事（日期 2026-11-02）──────────
+        Case(
+            "全角等号配全角冒号",
+            "账号＝fx_24\n密码：Fx@242424",
+            listOf(Row(null, "fx_24", "Fx@242424"))
+        ),
+        Case(
+            "从 Excel 复制的前导单引号",
+            "'账号：ex_25\n'密码：Ex@252525",
+            listOf(Row(null, "ex_25", "Ex@252525"))
+        ),
+        Case(
+            "账号是三个字后面直接跟值",
+            "账号是st_26 密码是St@262626",
+            listOf(Row(null, "st_26", "St@262626"))
+        ),
+        Case(
+            "中文逗号把两对隔开",
+            "账号：cm_27，密码：Cm@272727",
+            listOf(Row(null, "cm_27", "Cm@272727"))
+        ),
+        Case(
+            "字段名中间被空格劈开",
+            "账 号：sp_28\n密 码：Sp@282828",
+            listOf(Row(null, "sp_28", "Sp@282828"))
+        ),
+        Case(
+            "登陆名这种错别字写法",
+            "登陆名：lg_29\n登陆密码：Lg@292929",
+            listOf(Row(null, "lg_29", "Lg@292929"))
+        ),
+        Case(
+            "英文两行 Account Name 与 Password",
+            "Account Name: en_30\nPassword: En@303030",
+            listOf(Row(null, "en_30", "En@303030"))
+        ),
+        Case(
+            "英文同行 login 与 password",
+            "login: lg2_31  password: Pw@313131",
+            listOf(Row(null, "lg2_31", "Pw@313131"))
+        ),
+        Case(
+            "全角括号包着字段名",
+            "（账号）br2_32\n（密码）Br@323232",
+            listOf(Row(null, "br2_32", "Br@323232"))
+        ),
+        Case(
+            "服务器日志里的一行",
+            "2026-10-30 12:00:00 login user=log_33 pass=Log@333333",
+            listOf(Row(null, "log_33", "Log@333333"))
+        ),
+        Case(
+            "缩写键名 usr 配 pwd",
+            "usr=sh_34 pwd=Sh@343434",
+            listOf(Row(null, "sh_34", "Sh@343434"))
+        ),
+        Case(
+            "数字平台名配服务密码",
+            "95588 账号 icbc_35 服务密码 Ic@353535",
+            listOf(Row("95588", "icbc_35", "Ic@353535"))
+        ),
+        Case(
+            "会员名这种叫法",
+            "会员名：mem_36\n密码：Mem@363636",
+            listOf(Row(null, "mem_36", "Mem@363636"))
+        ),
+        Case(
+            "值后面用括号补一句备注",
+            "账号：nt_37 密码：Nt@373737（备注：备用）",
+            listOf(Row(null, "nt_37", "Nt@373737", "备用"))
+        ),
+        Case(
+            "带表头的竖线表格",
+            "平台|账号|密码\n京东|jd_38|Jd@383838",
+            listOf(Row("京东", "jd_38", "Jd@383838"))
+        ),
+        Case(
+            "带表头的制表符表格",
+            "应用\t用户名\t密码\n抖音\tdou_39\tDo@393939",
+            listOf(Row("抖音", "dou_39", "Do@393939"))
+        ),
+        Case(
+            "全角英文的账号密码两行",
+            "Ｕｓｅｒ：fw_40\nＰａｓｓ：Fw@404040",
+            listOf(Row(null, "fw_40", "Fw@404040"))
+        ),
+        Case(
+            "反引号包着每一样",
+            "`账号：bt_41` `密码：Bt@414141`",
+            listOf(Row(null, "bt_41", "Bt@414141"))
+        ),
+        Case(
+            "中文括号注明必填",
+            "账号（必填）：ac_16 密码（必填）：Ac@161616",
+            listOf(Row(null, "ac_16", "Ac@161616"))
+        ),
+        Case(
+            "全角等号配中文分号",
+            "用户名＝us_17；密码＝Pw@171717",
+            listOf(Row(null, "us_17", "Pw@171717"))
+        ),
+        Case(
+            "连字符把字段名粘在值后面",
+            "淘宝-账号:tb_18-密码:Tb@181818",
+            listOf(Row("淘宝", "tb_18", "Tb@181818"))
+        ),
+        Case(
+            "键名是站点账号密码的英文小写",
+            "site: steam user: st_19 pass: St@191919",
+            listOf(Row("steam", "st_19", "St@191919"))
+        ),
+        Case(
+            "方头括号字段名并在同一行",
+            "【平台】淘宝 【账号】tb_20 【密码】Tb@202020",
+            listOf(Row("淘宝", "tb_20", "Tb@202020"))
+        ),
+        Case(
+            "中文键名的单条 JSON",
+            "{\"站点\":\"淘宝\",\"账号\":\"tb_21\",\"密码\":\"Tb@212121\"}",
+            listOf(Row("淘宝", "tb_21", "Tb@212121"))
+        ),
+        Case(
+            "路由器管理页的地址与默认账号",
+            "路由器 192.168.1.1 账号：admin_22 密码：Rt@222222",
+            listOf(Row("路由器", "admin_22", "Rt@222222"))
+        ),
+        Case(
+            "卡号分组写着空格",
+            "卡号：6222 0212 3456 7890 密码：Ck@232323",
+            listOf(Row(null, "6222 0212 3456 7890", "Ck@232323"))
+        ),
+        Case(
+            "竖线分隔带用户ID",
+            "用户ID：uid_24 | 登录密码：Lg@242424",
+            listOf(Row(null, "uid_24", "Lg@242424"))
+        ),
+        Case(
+            "支付宝的支付密码",
+            "支付宝 账号：ali_25 支付密码：Al@252525",
+            listOf(Row("支付宝", "ali_25", "Al@252525"))
+        ),
+        Case(
+            "邮箱加授权码",
+            "QQ邮箱 账号：qq_26 授权码：Qq@262626",
+            listOf(Row("QQ邮箱", "qq_26", "Qq@262626"))
+        ),
+        Case(
+            "登录凭证写成 login id",
+            "login id: lg_27 / password: Lg@272727",
+            listOf(Row(null, "lg_27", "Lg@272727"))
+        ),
+        Case(
+            "空格分隔的三个英文键",
+            "app: 微博 account: wb_28 password: Wb@282828",
+            listOf(Row("微博", "wb_28", "Wb@282828"))
+        ),
+        Case(
+            "备注里还有一层说明",
+            "账号：tb_29\n密码：Tb@292929\n备注：主号：手机端登录，副号：平板",
+            listOf(Row(null, "tb_29", "Tb@292929", "主号：手机端登录，副号：平板"))
+        ),
+        Case(
+            "手机号配服务密码",
+            "手机：13800000030 服务密码：Sv@303030",
+            listOf(Row(null, "13800000030", "Sv@303030"))
+        ),
+        Case(
+            "同一行逗号串起三样",
+            "账号:tb_31,密码:Tb@313131,备注:测试号",
+            listOf(Row(null, "tb_31", "Tb@313131", "测试号"))
+        ),
+        Case(
+            "两行之间多空行",
+            "邮箱：ml_32@example.com\n\n\n密码：Ml@323232\n",
+            listOf(Row(null, "ml_32@example.com", "Ml@323232"))
+        ),
+        Case(
+            "WIFI 名称与密码",
+            "WiFi名称：Home_5G 密码：Wf@333333",
+            listOf(Row("Home_5G", null, "Wf@333333"))
+        ),
+        Case(
+            "序列号打头的游戏账号",
+            "1. 平台：明日方舟\n账号：ark_34\n密码：Ar@343434",
+            listOf(Row("明日方舟", "ark_34", "Ar@343434"))
+        ),
+        Case(
+            "YAML 列表写法",
+            "- site: 京东\n  user: jd_41\n  pass: Jd@414141",
+            listOf(Row("京东", "jd_41", "Jd@414141"))
+        ),
+        Case(
+            "固定宽度两列",
+            "用户名        密码\nwang_43       Wg@434343",
+            listOf(Row(null, "wang_43", "Wg@434343"))
+        ),
+        Case(
+            "聊天记录带时间戳",
+            "2026-11-02 22:10:33 老王 淘宝账号 tb_44 密码 Tb@444444",
+            listOf(Row("淘宝", "tb_44", "Tb@444444"))
+        ),
+        Case(
+            "密码带百分号编码",
+            "账号：pct_45\n密码：Pw%404545",
+            listOf(Row(null, "pct_45", "Pw%404545"))
+        ),
+        Case(
+            "中文逗号分隔两样",
+            "账号：cn_46，密码：Cn@464646",
+            listOf(Row(null, "cn_46", "Cn@464646"))
+        ),
+        Case(
+            "平台名带测试服",
+            "Steam(测试服) 账号：st_47 密码：St@474747",
+            listOf(Row("Steam(测试服)", "st_47", "St@474747"))
+        ),
+        Case(
+            "账号是大小写邮箱",
+            "账号：MixCase@Example.com\n密码：Mx@484848",
+            listOf(Row(null, "MixCase@Example.com", "Mx@484848"))
+        ),
+        Case(
+            "八位纯数字密码",
+            "路由器 账号：rt_49 密码：20261102",
+            listOf(Row("路由器", "rt_49", "20261102"))
+        ),
+        Case(
+            "中文顿号串起三样",
+            "平台、微博、账号、wb_50、密码、Wb@505050",
+            listOf(Row("微博", "wb_50", "Wb@505050"))
+        ),
+        Case(
+            "电话号码加星号密码",
+            "手机号：13800000051 密码：Sv@515151",
+            listOf(Row(null, "13800000051", "Sv@515151"))
+        ),
+        Case(
+            "同一账号抄了两遍密码",
+            "账号：dup_52 密码：Dp@525252 确认密码：Dp@525252",
+            listOf(Row(null, "dup_52", "Dp@525252"))
+        ),
+        Case(
+            "方括号包着平台名",
+            "[淘宝] 账号：br_53 密码：Br@535353",
+            listOf(Row("淘宝", "br_53", "Br@535353"))
+        ),
+        Case(
+            "密码里有空格还带引号",
+            "账号：sp_60\n密码：\"Pw 60 60\"",
+            listOf(Row(null, "sp_60", "Pw 60 60"))
+        ),
+        Case(
+            "书名号包着平台名",
+            "《淘宝》账号：bk_61 密码：Bk@616161",
+            listOf(Row("淘宝", "bk_61", "Bk@616161"))
+        ),
+        Case(
+            "制表符两列带中文表头",
+            "平台\t账号\t密码\n京东\tjd_62\tJd@626262",
+            listOf(Row("京东", "jd_62", "Jd@626262"))
+        ),
+        Case(
+            "密码写在账号前",
+            "密码：Pw@636363 账号：pw_63",
+            listOf(Row(null, "pw_63", "Pw@636363"))
+        ),
+        Case(
+            "密码含花括号",
+            "账号：br_66\n密码：{Br@666666}",
+            listOf(Row(null, "br_66", "{Br@666666}"))
+        ),
+        Case(
+            "备注里带网址",
+            "账号：n_67 密码：Nt@676767 备注：备用 https://a.example.com/x",
+            listOf(Row(null, "n_67", "Nt@676767", "备用 https://a.example.com/x"))
+        ),
+        Case(
+            "冒号前后都有空格",
+            "账号 ： sp_68\n密码 ： Sp@686868",
+            listOf(Row(null, "sp_68", "Sp@686868"))
+        ),
+        Case(
+            "查询串里带账号密码",
+            "https://a.example.com/login?user=u70&pass=Pu@707070",
+            listOf(Row(null, "u70", "Pu@707070"))
+        ),
+        Case(
+            "两条记录用破折号隔开",
+            "淘宝账号 tb_80 密码 Tb@808080\n——\n京东账号 jd_80 密码 Jd@808080",
+            listOf(
+                Row("淘宝", "tb_80", "Tb@808080"),
+                Row("京东", "jd_80", "Jd@808080")
+            )
+        ),
+        Case(
+            "账号后面带个括号说明",
+            "账号：acc_81（离职）\n密码：Ac@818181",
+            listOf(Row(null, "acc_81（离职）", "Ac@818181"))
+        ),
+        Case(
+            "英文键名全大写",
+            "USERNAME: up_82\nPASSWORD: Up@828282",
+            listOf(Row(null, "up_82", "Up@828282"))
+        ),
+        Case(
+            "平台名带连字符",
+            "TikTok-国际版 账号：tt_84 密码：Tt@848484",
+            listOf(Row("TikTok-国际版", "tt_84", "Tt@848484"))
+        ),
+        Case(
+            "备注里含等号",
+            "账号：eq_85 密码：Eq@858585 备注：a=b",
+            listOf(Row(null, "eq_85", "Eq@858585", "a=b"))
+        ),
+        Case(
+            "斜杠三格带表头",
+            "平台/账号/密码\n淘宝/tb_86/Tb@868686",
+            listOf(Row("淘宝", "tb_86", "Tb@868686"))
+        ),
+        Case(
+            "密码是纯符号",
+            "账号：sym_87 密码：!@#$%^*",
+            listOf(Row(null, "sym_87", "!@#$%^*"))
+        ),
+        Case(
+            "手机号带横线",
+            "手机号：138-0000-0088 密码：Ph@888888",
+            listOf(Row(null, "138-0000-0088", "Ph@888888"))
+        ),
+        Case(
+            "我的页复制带昵称与注册时间",
+            "账号：zz_01\n昵称：小明\n密码：Zz@010101\n注册时间：2024-01-01",
+            listOf(Row(null, "zz_01", "Zz@010101"))
+        ),
+        Case(
+            "表格四列带序号",
+            "序号\t平台\t账号\t密码\n1\t淘宝\tta_02\tTa@020202",
+            listOf(Row("淘宝", "ta_02", "Ta@020202"))
+        ),
+        Case(
+            "序号点后跟三样",
+            "3. 淘宝 ta_04 Ta@040404",
+            listOf(Row("淘宝", "ta_04", "Ta@040404"))
+        ),
+        Case(
+            "竖线四格带备注",
+            "淘宝 | ta_05 | Ta@050505 | 备用",
+            listOf(Row("淘宝", "ta_05", "Ta@050505", "备用"))
+        ),
+        Case(
+            "密码在前账号在后",
+            "密码是 Ab@060606，账号是 ac_06",
+            listOf(Row(null, "ac_06", "Ab@060606"))
+        ),
+        Case(
+            "方头括号夹在中间",
+            "【淘宝】ta_07【密码】Ta@070707",
+            listOf(Row("淘宝", "ta_07", "Ta@070707"))
+        ),
+        Case(
+            "链接只写 u 和 p",
+            "https://b.example.com/login?u=ac_08&p=Ab@080808",
+            listOf(Row(null, "ac_08", "Ab@080808"))
+        ),
+        Case(
+            "制表符分开两个字段名",
+            "账号：ac_09\t密码：Ab@090909",
+            listOf(Row(null, "ac_09", "Ab@090909"))
+        ),
+        Case(
+            "空格分开三组",
+            "用户名 ac_10 密码 Ab@101010 备注 备用",
+            listOf(Row(null, "ac_10", "Ab@101010", "备用"))
+        ),
+        Case(
+            "只有冒号一对",
+            "ac_11:Ab@111111",
+            listOf(Row(null, "ac_11", "Ab@111111"))
+        ),
+        Case(
+            "备注后面留空",
+            "平台：淘宝 账号：ac_12 密码：Ab@121212 备注：",
+            listOf(Row("淘宝", "ac_12", "Ab@121212"))
+        ),
+        Case(
+            "密码换到下一行",
+            "账号：ac_13\n密码：\nAb@131313",
+            listOf(Row(null, "ac_13", "Ab@131313"))
+        ),
+        Case(
+            "QQ 号当键名",
+            "QQ：123456789 密码：Qq@141414",
+            listOf(Row(null, "123456789", "Qq@141414"))
+        ),
+        Case(
+            "JSON 里套一层 list",
+            "{\"list\":[{\"name\":\"淘宝\",\"account\":\"ac_15\",\"password\":\"Ab@151515\"}]}",
+            listOf(Row("淘宝", "ac_15", "Ab@151515"))
+        ),
+        Case(
+            "XML 用 item 包一层",
+            "<item><title>京东</title><account>ac_16</account><password>Ab@161616</password></item>",
+            listOf(Row("京东", "ac_16", "Ab@161616"))
+        ),
+        Case(
+            "两格逗号没有表头",
+            "ta_17,Ta@171717",
+            listOf(Row(null, "ta_17", "Ta@171717"))
+        ),
+        Case(
+            "字段名和值全粘一起",
+            "账号ac_18密码Ta@181818",
+            listOf(Row(null, "ac_18", "Ta@181818"))
+        ),
+        Case(
+            "空格三样后面带备注",
+            "淘宝 账号 ac_19 密码 Ta@191919 备注 游戏小号",
+            listOf(Row("淘宝", "ac_19", "Ta@191919", "游戏小号"))
+        ),
+        Case(
+            "斜杠两格没有表头",
+            "ac_20/Ta@202020",
+            listOf(Row(null, "ac_20", "Ta@202020"))
+        ),
+        Case(
+            "口令这种叫法",
+            "用户:ac_21 口令:Ta@212121",
+            listOf(Row(null, "ac_21", "Ta@212121"))
+        ),
+        Case(
+            "末尾跟一句提示",
+            "登录名 ac_23\n密码 Ta@232323\n（提示：首次登录请修改密码）",
+            listOf(Row(null, "ac_23", "Ta@232323"))
+        ),
+        Case(
+            "平台名单独一行再跟两行",
+            "淘宝\n账号：tb_01\n密码：Tb@010101",
+            listOf(Row("淘宝", "tb_01", "Tb@010101"))
+        ),
+        Case(
+            "三行里带网址",
+            "账号:tb_02\n密码:Tb@020202\n网址:taobao.com",
+            listOf(Row(null, "tb_02", "Tb@020202"))
+        ),
+        Case(
+            "两个值一个空格",
+            "tb_03 Tb@030303",
+            listOf(Row(null, "tb_03", "Tb@030303"))
+        ),
+        Case(
+            "制表符串起平台与两样",
+            "淘宝\t账号：tb_04\t密码：Tb@040404",
+            listOf(Row("淘宝", "tb_04", "Tb@040404"))
+        ),
+        Case(
+            "全角等号配中文分号",
+            "账号＝tb_05；密码＝Tb@050505",
+            listOf(Row(null, "tb_05", "Tb@050505"))
+        ),
+        Case(
+            "用户名为密码是",
+            "用户名为tb_06，密码是Tb@060606",
+            listOf(Row(null, "tb_06", "Tb@060606"))
+        ),
+        Case(
+            "平台名冒号后接账号",
+            "淘宝：账号 tb_07 密码 Tb@070707",
+            listOf(Row("淘宝", "tb_07", "Tb@070707"))
+        ),
+        Case(
+            "方头括号里只有序号",
+            "【1】淘宝 tb_08 Tb@080808",
+            listOf(Row("淘宝", "tb_08", "Tb@080808"))
+        ),
+        Case(
+            "用户与口令",
+            "平台:淘宝\n用户:tb_10\n口令:Tb@101010",
+            listOf(Row("淘宝", "tb_10", "Tb@101010"))
+        ),
+        Case(
+            "英文键名用空格隔开",
+            "acct=tb_11 pwd=Tb@111111",
+            listOf(Row(null, "tb_11", "Tb@111111"))
+        ),
+        Case(
+            "二级密码这种叫法",
+            "账号：tb_12\n二级密码：Tb@121212",
+            listOf(Row(null, "tb_12", "Tb@121212"))
+        ),
+        Case(
+            "中间一排横线",
+            "tb_13@example.com ---- Tb@131313",
+            listOf(Row(null, "tb_13@example.com", "Tb@131313"))
+        ),
+        Case(
+            "平台名用圆括号",
+            "(淘宝) tb_14 Tb@141414",
+            listOf(Row("淘宝", "tb_14", "Tb@141414"))
+        ),
+        Case(
+            "一行里带备注",
+            "淘宝 账号:tb_15 密码:Tb@151515 备注:同事的号，别删",
+            listOf(Row("淘宝", "tb_15", "Tb@151515", "同事的号，别删"))
+        ),
+        Case(
+            "四格制表符平台名在最后",
+            "tb_16\tTb@161616\t淘宝\t常用",
+            listOf(Row("淘宝", "tb_16", "Tb@161616", "常用"))
+        ),
+        Case(
+            "登录账户与登录密码",
+            "登录账户：tb_17\n登录密码：Tb@171717",
+            listOf(Row(null, "tb_17", "Tb@171717"))
+        ),
+        Case(
+            "后面跟着验证码",
+            "账号: tb_18\n密码: Tb@181818\n验证码: 123456",
+            listOf(Row(null, "tb_18", "Tb@181818"))
+        ),
+        Case(
+            "冒号串里平台名在最后",
+            "tb_19:Tb@191919:淘宝",
+            listOf(Row("淘宝", "tb_19", "Tb@191919"))
+        ),
+        Case(
+            "三行都没有字段名",
+            "淘宝\ntb_20\nTb@202020",
+            listOf(Row("淘宝", "tb_20", "Tb@202020"))
+        ),
+        Case(
+            "值被引号包着",
+            "账号是 \"acme_01\"，密码是 \"Ab@313131\"",
+            listOf(Row(null, "acme_01", "Ab@313131"))
+        ),
+        Case(
+            "空行分段且没有字段名",
+            "taobao_02\nTb@323232\n\njd_03\nJd@333333",
+            listOf(
+                Row(null, "taobao_02", "Tb@323232"),
+                Row(null, "jd_03", "Jd@333333")
+            )
+        ),
+        Case(
+            "备注里再套一个冒号",
+            "账号：no_04 密码：No@343434 备注：注册于：2024年",
+            listOf(Row(null, "no_04", "No@343434", "注册于：2024年"))
+        ),
+        Case(
+            "密码里带分号",
+            "账号：se_05 密码：Se@35;3535",
+            listOf(Row(null, "se_05", "Se@35;3535"))
+        ),
+        Case(
+            "平台名后面跟着版本号",
+            "淘宝 App 6.0 账号：tb_06 密码：Tb@363636",
+            listOf(Row("淘宝", "tb_06", "Tb@363636"))
+        ),
+        Case(
+            "邮箱账号带加号",
+            "user+tag@example.com / Pa@373737",
+            listOf(Row(null, "user+tag@example.com", "Pa@373737"))
+        ),
+        Case(
+            "平台名后面的括号里写着网址",
+            "淘宝（taobao.com）账号：tb_08 密码：Tb@383838",
+            listOf(Row("淘宝", "tb_08", "Tb@383838"))
+        ),
+        Case(
+            "冒号后面一串空格",
+            "账号：     sp_09    密码：    Sp@393939",
+            listOf(Row(null, "sp_09", "Sp@393939"))
+        ),
+        Case(
+            "制表符四列带表头与备注",
+            "平台\t账号\t密码\t备注\n淘宝\ttb_10\tTb@404040\t常用",
+            listOf(Row("淘宝", "tb_10", "Tb@404040", "常用"))
+        ),
+        Case(
+            "密码被引号包着且中间有空格",
+            "账号：qu_11 密码：\"Qu @414141\"",
+            listOf(Row(null, "qu_11", "Qu @414141"))
+        ),
+        Case(
+            "手机号带国际区号",
+            "+86 13800001111 密码：Ph@424242",
+            // 国际区号是书写习惯，真正拿来登录的是号码本身；账号栏只留号码。
+            listOf(Row(null, "13800001111", "Ph@424242"))
+        ),
+        Case(
+            "英文键名带下划线且大写",
+            "USER_NAME: un_12 PASSWORD: Un@434343",
+            listOf(Row(null, "un_12", "Un@434343"))
+        ),
+        Case(
+            "网址夹在平台名和账号之间",
+            "淘宝 taobao.com 账号 tb_13 密码 Tb@444444",
+            listOf(Row("淘宝", "tb_13", "Tb@444444"))
+        ),
+        Case(
+            "密码后面用括号写备注",
+            "账号：br_14 密码：Br@454545 (备用)",
+            listOf(Row(null, "br_14", "Br@454545", "备用"))
+        ),
+        Case(
+            "中文键名的单行 JSON",
+            "{\"平台\":\"微信\",\"账号\":\"wx_15\",\"密码\":\"Wx@464646\"}",
+            listOf(Row("微信", "wx_15", "Wx@464646"))
+        ),
+        Case(
+            "竖线表格带一行分隔线",
+            "| 平台 | 账号 | 密码 |\n|---|---|---|\n| 淘宝 | tb_16 | Tb@474747 |",
+            listOf(Row("淘宝", "tb_16", "Tb@474747"))
+        ),
+        Case(
+            "字段名和值各占一行",
+            "登录名\nlg_17\n登录密码\nLg@484848",
+            listOf(Row(null, "lg_17", "Lg@484848"))
+        ),
+        Case(
+            "邮箱配八位纯数字密码",
+            "mail_19@example.com 密码 87654321",
+            listOf(Row(null, "mail_19@example.com", "87654321"))
+        ),
+        Case(
+            "句首先写一句备注",
+            "备注：家里用 账号：hm_20 密码：Hm@505050",
+            listOf(Row(null, "hm_20", "Hm@505050", "家里用"))
+        ),
+        Case(
+            "顿号分隔且带字段名",
+            "平台、淘宝、账号、tb_21、密码、Tb@515151",
+            listOf(Row("淘宝", "tb_21", "Tb@515151"))
+        ),
+
+        // ── 第二十九组：箭头、竖线包边、null 值、纯中文密码这类没试过的写法 ──
+        Case(
+            "箭头串起三样",
+            "淘宝 → taobao_30 → Tb@303030",
+            listOf(Row("淘宝", "taobao_30", "Tb@303030"))
+        ),
+        Case(
+            "全角括号包字段名",
+            "（账号）tb_31 （密码）Tb@313131",
+            listOf(Row(null, "tb_31", "Tb@313131"))
+        ),
+        Case(
+            "竖线包边且字段名在后",
+            "| 淘宝 | 账号 tb_32 | 密码 Tb@323232 |",
+            listOf(Row("淘宝", "tb_32", "Tb@323232"))
+        ),
+        Case(
+            "密码尾巴带等号",
+            "账号：tb_33 密码：Tb@333333==",
+            listOf(Row(null, "tb_33", "Tb@333333=="))
+        ),
+        Case(
+            "键值全用中文逗号连",
+            "账号：tb_38，密码：Tb@383838，平台：淘宝",
+            listOf(Row("淘宝", "tb_38", "Tb@383838"))
+        ),
+        Case(
+            "备注写最前面",
+            "备注：老账号 平台：微博 账号：wb_40 密码：Wb@404040",
+            listOf(Row("微博", "wb_40", "Wb@404040", "老账号"))
+        ),
+        Case(
+            "JSON 里有个 null",
+            "{\"site\":\"知乎\",\"user\":null,\"pwd\":\"Zh@414141\"}",
+            listOf(Row("知乎", null, "Zh@414141"))
+        ),
+        Case(
+            "制表符且字段名带冒号",
+            "账号:\ttb_42\t密码:\tTb@424242",
+            listOf(Row(null, "tb_42", "Tb@424242"))
+        ),
+        Case(
+            "密码是纯中文",
+            "账号 cn_43 密码 中文密码四十三",
+            listOf(Row(null, "cn_43", "中文密码四十三"))
+        ),
+        Case(
+            "平台名单独一行带冒号",
+            "Steam:\nsteam_44\nSt@444444",
+            listOf(Row("Steam", "steam_44", "St@444444"))
+        ),
+        Case(
+            "一行两组键用顿号",
+            "账号 tb_45、密码 Tb@454545、账号 tb_46、密码 Tb@464646",
+            listOf(Row(null, "tb_45", "Tb@454545"), Row(null, "tb_46", "Tb@464646"))
+        ),
+        Case(
+            "值用单引号包着",
+            "账号 'tb_47' 密码 'Tb@474747'",
+            listOf(Row(null, "tb_47", "Tb@474747"))
+        ),
+        Case(
+            "序号加制表符加邮箱",
+            "7.\ttb_48@example.com\tTb@484848",
+            listOf(Row(null, "tb_48@example.com", "Tb@484848"))
+        ),
+        Case(
+            "平台名是英文数字混写",
+            "51job tb_49 Tb@494949",
+            listOf(Row("51job", "tb_49", "Tb@494949"))
+        ),
+        Case(
+            "密码后面跟省略号",
+            "账号 tb_50 密码 Tb@505050…",
+            listOf(Row(null, "tb_50", "Tb@505050"))
+        ),
+        Case(
+            "方头括号单独一行",
+            "【淘宝】\ntb_51\nTb@515151",
+            listOf(Row("淘宝", "tb_51", "Tb@515151"))
+        ),
+        Case(
+            "账号里带点和下划线",
+            "账号：user.name_52 密码：Un@525252",
+            listOf(Row(null, "user.name_52", "Un@525252"))
+        ),
+        Case(
+            "同一个键写了两遍",
+            "账号：tb_53 账号：tb_53 密码：Tb@535353",
+            listOf(Row(null, "tb_53", "Tb@535353"))
+        ),
+        Case(
+            "中文序号打头",
+            "三、淘宝 tb_54 Tb@545454",
+            listOf(Row("淘宝", "tb_54", "Tb@545454"))
+        ),
+        Case(
+            "密码写在方括号里",
+            "账号 tb_55 密码 [Tb@555555]",
+            listOf(Row(null, "tb_55", "Tb@555555"))
+        ),
     )
 
     @Test
