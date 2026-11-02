@@ -1,4 +1,4 @@
-﻿import java.util.Properties
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -57,8 +57,8 @@ android {
         applicationId = "com.yg.vaultbook"
         minSdk = 26          // Autofill Framework 起始版本
         targetSdk = 35
-        versionCode = 150
-        versionName = "1.5"
+        versionCode = 160
+        versionName = "1.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 

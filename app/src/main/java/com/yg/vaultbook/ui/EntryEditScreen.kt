@@ -1413,19 +1413,23 @@ private fun PasteField(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            rows.size == 1 -> SingleCandidateCard(rows[0], enabled) { onFill(rows[0]) }
+            rows.size == 1 -> SingleCandidateCard(rows[0], enabled, onFill)
             else -> BatchCandidateCard(rows.size, enabled, onBatch)
         }
     }
 }
 
-/** 认出 1 条时摊开给人核对。密码只显示点数，见 [describeCandidate]。 */
+/** 认出 1 条时摊开给人核对；认反了就一键对调。密码照原文显示，见 [describeCandidate]。 */
 @Composable
 private fun SingleCandidateCard(
     row: CredentialParser.Result,
     enabled: Boolean,
-    onFill: () -> Unit
+    onFill: (CredentialParser.Result) -> Unit
 ) {
+    // 只在当前这张卡片上生效：粘贴的文字一换，remember(row) 就会重置
+    var swapped by remember(row) { mutableStateOf(false) }
+    val shown = if (swapped) row.swapped() else row
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -1440,12 +1444,22 @@ private fun SingleCandidateCard(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = describeCandidate(row),
+                text = describeCandidate(shown),
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = FontFamily.Monospace
             )
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onFill, enabled = enabled) { Text("填入表单") }
+                // 位置猜测必然有错判的时候（`抖音 abc123` 到底谁是谁只有用户知道），
+                // 与其把规则调得更聪明，不如给一个一键对调
+                if (row.username != null && row.password != null) {
+                    TextButton(
+                        onClick = { swapped = !swapped },
+                        enabled = enabled
+                    ) {
+                        Text(if (swapped) "换回来" else "账号密码反了？")
+                    }
+                }
+                TextButton(onClick = { onFill(shown) }, enabled = enabled) { Text("填入表单") }
             }
         }
     }

@@ -414,6 +414,186 @@ class CredentialParserTest {
         assertNull(r.username)
     }
 
+    // ── 更多抄法（1.6：把常见形状补齐）────────────────────────────
+
+    /** 记事本里手抄时很多人不打冒号，只用一个空格。 */
+    @Test
+    fun `空白分隔的字段名也能认`() {
+        val r = CredentialParser.parse("用户名 admin\n密码 abc123")!!
+        assertEquals("admin", r.username)
+        assertEquals("abc123", r.password)
+    }
+
+    @Test
+    fun `一行里空白分隔的两个字段`() {
+        val r = CredentialParser.parse("账号 admin 密码 abc123")!!
+        assertEquals("admin", r.username)
+        assertEquals("abc123", r.password)
+    }
+
+    /** 字段名自己占一行、值在下一行。 */
+    @Test
+    fun `字段名独占一行时值取下一行`() {
+        val r = CredentialParser.parse("密码\nabc123")!!
+        assertEquals("abc123", r.password)
+        assertNull(r.username)
+    }
+
+    /** 账号和密码用一个冒号直接连起来，中间没有空白。 */
+    @Test
+    fun `账号和密码用一个冒号连着`() {
+        val r = CredentialParser.parse("zhang@qq.com:abc123")!!
+        assertEquals("zhang@qq.com", r.username)
+        assertEquals("abc123", r.password)
+    }
+
+    /** 从表格里复制时第一行是表头，不能被记成一条"账号叫平台"的记录。 */
+    @Test
+    fun `表头行不会被当成一条记录`() {
+        val text = """
+            平台 账号 密码
+            淘宝 13800138000 p@ssw0rd
+            京东 myjd 12345678
+        """.trimIndent()
+
+        val rows = CredentialParser.parseMany(text)
+        assertEquals(2, rows.size)
+        assertEquals("淘宝", rows[0].title)
+        assertEquals("13800138000", rows[0].username)
+        assertEquals("京东", rows[1].title)
+    }
+
+    /** 记事本里用 `---` 隔开下一条。 */
+    @Test
+    fun `整行横线当分隔`() {
+        val text = """
+            淘宝
+            13800138000
+            p@ssw0rd
+            ---
+            京东
+            myjd
+            12345678
+        """.trimIndent()
+
+        val rows = CredentialParser.parseMany(text)
+        assertEquals(2, rows.size)
+        assertEquals("淘宝", rows[0].title)
+        assertEquals("13800138000", rows[0].username)
+        assertEquals("京东", rows[1].title)
+        assertEquals("12345678", rows[1].password)
+    }
+
+    /** 抄的时候带序号，序号不能跑进标题。 */
+    @Test
+    fun `行首序号被剥掉`() {
+        val text = """
+            1. 淘宝 13800138000 p@ssw0rd
+            2. 京东 myjd 12345678
+        """.trimIndent()
+
+        val rows = CredentialParser.parseMany(text)
+        assertEquals(2, rows.size)
+        assertEquals("淘宝", rows[0].title)
+        assertEquals("13800138000", rows[0].username)
+        assertEquals("京东", rows[1].title)
+    }
+
+    /** 标签写在最前面：`账号admin密码abc123`。 */
+    @Test
+    fun `账号写在连写最前面`() {
+        val r = CredentialParser.parse("账号admin密码abc123")!!
+        assertEquals("admin", r.username)
+        assertEquals("abc123", r.password)
+        assertNull(r.title)
+    }
+
+    /** 两行、首行是平台名时，它是标题而不是账号。 */
+    @Test
+    fun `两行首行是站点名时当标题`() {
+        val r = CredentialParser.parse("淘宝\nabc123")!!
+        assertEquals("淘宝", r.title)
+        assertEquals("abc123", r.password)
+        assertNull(r.username)
+    }
+
+    /** 一条记录被空行掰成「只有账号」「只有密码」两半时，不能算两条。 */
+    @Test
+    fun `空行把一条记录拆开时不算两条`() {
+        val rows = CredentialParser.parseMany("账号：admin\n\n密码：abc123")
+        assertEquals(1, rows.size)
+        assertEquals("admin", rows[0].username)
+        assertEquals("abc123", rows[0].password)
+    }
+
+    /** 备注行不是凭据，不能被记成一条记录。 */
+    @Test
+    fun `备注行不参与识别`() {
+        val text = """
+            淘宝 13800138000 p@ssw0rd
+            备注：备用密码在邮箱里
+        """.trimIndent()
+
+        val rows = CredentialParser.parseMany(text)
+        assertEquals(1, rows.size)
+        assertEquals("淘宝", rows[0].title)
+    }
+
+    /** 行里混着网址时，网址那一段不能被当成密码。 */
+    @Test
+    fun `一行里带网址时不会把网址当密码`() {
+        val r = CredentialParser.parse("admin abc123 www.taobao.com")!!
+        assertEquals("admin", r.username)
+        assertEquals("abc123", r.password)
+        assertEquals("www.taobao.com", r.url)
+    }
+
+    /** 平台名和账号贴在一起：不能把整串 `抖音12313213` 当账号。 */
+    @Test
+    fun `平台名和账号贴在一起时拆开`() {
+        val r = CredentialParser.parse("抖音12313213 1231313")!!
+        assertEquals("抖音", r.title)
+        assertEquals("12313213", r.username)
+        assertEquals("1231313", r.password)
+    }
+
+    /** 只有两段、且第一段是纯中文平台名时，第一段是标题不是账号。 */
+    @Test
+    fun `两段里第一段是平台名时当标题`() {
+        val r = CredentialParser.parse("抖音 12313213")!!
+        assertEquals("抖音", r.title)
+        assertEquals("12313213", r.username)
+        assertNull(r.password)
+    }
+
+    /** 两段都是普通值时仍按「账号 密码」理解。 */
+    @Test
+    fun `两段都不是平台名时仍当账号密码`() {
+        val r = CredentialParser.parse("admin 123456")!!
+        assertNull(r.title)
+        assertEquals("admin", r.username)
+        assertEquals("123456", r.password)
+    }
+
+    /** 认反了的时候，一键对调。 */
+    @Test
+    fun `swapped 把账号密码对调`() {
+        val r = CredentialParser.Result(username = "抖音", password = "abc123", url = "a.com", title = "标题")
+        val s = r.swapped()
+        assertEquals("abc123", s.username)
+        assertEquals("抖音", s.password)
+        assertEquals("a.com", s.url)
+        assertEquals("标题", s.title)
+    }
+
+    /** 只有一边有值时，对调不会凭空造出另一个。 */
+    @Test
+    fun `swapped 对单边为空也安全`() {
+        val s = CredentialParser.Result(username = "only").swapped()
+        assertNull(s.username)
+        assertEquals("only", s.password)
+    }
+
     @Test
     fun `isEmpty 与 hasCredential 的语义`() {
         val empty = CredentialParser.Result()
