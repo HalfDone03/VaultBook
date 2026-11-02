@@ -43,10 +43,20 @@ object CredentialParser {
         val password: String? = null,
         val url: String? = null,
         val title: String? = null,
+        /**
+         * 备注。
+         *
+         * 表格里的「备注」列、JSON 的 `note` 字段、`备注：xxx` 这一行都归到这里。
+         * 早先这些内容被当作"要丢弃的字段名"整行吃掉，用户的原话是
+         * 「备注几乎都识别不出来」—— 备注里常写着"密保问题答案在邮箱"这类
+         * 关键提示，丢了就真丢了。
+         */
+        val notes: String? = null,
     ) {
         /** 一个字段都没认出来。 */
         val isEmpty: Boolean
-            get() = username == null && password == null && url == null && title == null
+            get() = username == null && password == null && url == null &&
+                title == null && notes == null
 
         /**
          * 至少认出了账号或密码。
@@ -82,23 +92,35 @@ object CredentialParser {
         "website|domain|网址|网站|链接|地址|url|site|link|host"
 
     private const val TITLE_LABELS =
-        "title|app名|标题|名称|站点|应用|平台|软件|app|name"
+        "application|platform|service|title|app名|标题|名称|站点|平台|应用|软件|site|app|name"
+
+    private const val NOTES_LABELS =
+        "备注信息|备注|说明|注释|description|remark|notes|note|memo"
 
     /**
-     * 认得出、但**不是凭据**的字段名：备注、说明、序号、分类。
+     * 认得出、但**不是凭据**的字段名：序号、分类、类型。
      *
-     * 这些行必须被"吃掉"，否则 `备注：备用密码在邮箱里` 会被当成
-     * "账号叫『备注』、密码叫『备用密码在邮箱里』"记一条。
+     * 这些行必须被"吃掉"，否则 `序号：3` 会被当成"账号叫『序号』、
+     * 密码叫『3』"记一条。
+     *
+     * 备注曾经也在这张表里，后来单独拆成 [NOTES_LABELS]：备注要留下，不要丢。
      */
     private const val IGNORE_LABELS =
-        "remark|note|index|备注|说明|注释|序号|编号|分类|类型|标签|备注信息"
+        "index|序号|编号|分类|类型|标签"
 
+    /**
+     * 前面不能粘着字母数字：`demo_user:abc` 里的 `user` 是账号的一部分，
+     * 不是字段名。少了这个边界，整条链接的账号会被切成
+     * `Demo%40123@example.com/login`（越界取值）。
+     */
     private val KV_REGEX = Regex(
         "(?i)" +
+            "(?<![\\w@.\\-])" +
             "(?:(?<user>$USER_LABELS)" +
             "|(?<pass>$PASS_LABELS)" +
             "|(?<url>$URL_LABELS)" +
             "|(?<title>$TITLE_LABELS)" +
+            "|(?<notes>$NOTES_LABELS)" +
             "|(?<ignore>$IGNORE_LABELS))" +
             "\\s*[:：=＝]\\s*"
     )
@@ -117,11 +139,16 @@ object CredentialParser {
             "|(?<pass>$PASS_LABELS)" +
             "|(?<url>$URL_LABELS)" +
             "|(?<title>$TITLE_LABELS)" +
+            "|(?<notes>$NOTES_LABELS)" +
             "|(?<ignore>$IGNORE_LABELS))" +
             "\\s+"
     )
 
-    private val URL_REGEX = Regex("https?://[^\\s\"'<>）)】]+", RegexOption.IGNORE_CASE)
+    /** 任意协议的链接。早先只认 `http(s)://`，`ftp://user:pass@host` 整行被当成账号。 */
+    private val URL_REGEX = Regex(
+        "[a-z][a-z0-9+.\\-]*://[^\\s\"'<>）)】]+",
+        RegexOption.IGNORE_CASE
+    )
 
     /** `https://user:pass@host` 里带凭据的写法（抓取工具导出的东西常见）。 */
     private val URL_USERINFO_REGEX = Regex("(?i)\\b[a-z][a-z0-9+.\\-]*://([^/\\s:@]+):([^/\\s@]+)@")
@@ -129,6 +156,37 @@ object CredentialParser {
     private val HOST_REGEX = Regex(
         "(?i)\\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,24}\\b"
     )
+
+    /**
+     * JSON 里的一条对象：`{"platform":"微博","account":"x","password":"y"}`。
+     *
+     * `{` 与 `}` 之间不允许再嵌套，长度也设了上限 —— 这是"记事本里粘的导出
+     * 数据"，不是任意 JSON 解析器；把整份大文件当输入时不能回溯到卡死。
+     */
+    private val JSON_OBJECT_REGEX = Regex("\\{[^{}]{0,4000}\\}")
+
+    /**
+     * JSON 里的一个键值对。值支持带引号的字符串、数字、true/false/null。
+     *
+     * 刻意不用 `org.json`：那是 Android SDK 里的桩实现，JVM 单测一调就抛
+     * "not mocked"，而识别逻辑必须在单测里跑得起来。
+     */
+    private val JSON_FIELD_REGEX = Regex(
+        "\"([^\"]{1,40})\"\\s*:\\s*(?:\"((?:[^\"\\\\]|\\\\.){0,400})\"|(-?[0-9][0-9.eE+\\-]*))"
+    )
+
+    /** 表格里的分隔符候选，按"谁更像列分隔符"的顺序试。 */
+    private val TABLE_DELIMITERS = listOf(',', '\t', ';', '|')
+
+    /** 表头/JSON 键名归一化后能认出的列。 */
+    private enum class Column { TITLE, USER, PASS, URL, NOTES, IGNORE }
+
+    private val USER_KEYS = USER_LABELS.split('|').toSet()
+    private val PASS_KEYS = PASS_LABELS.split('|').toSet()
+    private val TITLE_KEYS = TITLE_LABELS.split('|').toSet()
+    private val URL_KEYS = URL_LABELS.split('|').toSet()
+    private val NOTES_KEYS = NOTES_LABELS.split('|').toSet()
+    private val IGNORE_KEYS = IGNORE_LABELS.split('|').toSet()
 
     /** 一行内多个值之间的分隔符。`----` 在抄密码时很常见，必须先于 `-` 处理。 */
     private val INLINE_SEPARATORS = Regex("[ \\t\\u3000]+|_{2,}|-{2,}|\\|+|,|，|;|；|/+")
@@ -191,6 +249,33 @@ object CredentialParser {
         var password: String? = null
         var url: String? = null
         var title: String? = null
+        var notes: String? = null
+
+        // ── 第零步：结构化形状 ────────────────────────────────────
+        // JSON 对象和表格行里字段名是显式的，交给下面按位置猜的规则，
+        // 只会把引号、逗号当成值的一部分（`username="account":"x"` 那种鬼东西）。
+        jsonRecord(text)?.takeIf { it.hasCredential }?.let { return it }
+        tableRecords(text).firstOrNull()?.takeIf { it.hasCredential }?.let { return it }
+
+        // 一行的 `标签:账号:密码`（`微信:demo_wx_001:Wx@123456`）。
+        // 必须排在 key:value 前面 —— `邮箱:demo@x.com:Mail#2024` 里的「邮箱」
+        // 本身就是字段名，先走 kv 会把整个 `demo@x.com:Mail#2024` 当成账号。
+        val chainLines = text.split('\n')
+            .map { it.stripLineIndex().edgeTrim() }
+            .filter { it.isNotEmpty() }
+        if (chainLines.size >= 2 && chainLines.all { splitColonChain(it) != null }) {
+            parse(chainLines.first())?.let { return it }
+        }
+        chainLines.singleOrNull()?.let { splitColonChain(it) }?.let { chain ->
+            val single = Result(
+                username = chain.second,
+                password = chain.third,
+                url = null,
+                title = chain.first,
+                notes = null
+            )
+            if (single.hasCredential) return single
+        }
 
         // ── 第一步：key: value ────────────────────────────────────
         // 记录所有被 kv 吃掉的行，后面不能拿它们再当"无名值"
@@ -220,6 +305,9 @@ object CredentialParser {
                 }
                 match.groups["title"] != null && title == null -> {
                     title = value.ifBlank { null }
+                }
+                match.groups["notes"] != null && notes == null -> {
+                    notes = value.ifBlank { null }
                 }
             }
             consumedLines += lineIndex
@@ -251,33 +339,39 @@ object CredentialParser {
                     url = usable?.let { cleanUrl(it) ?: it }
                 }
                 match.groups["title"] != null && title == null -> title = usable
+                match.groups["notes"] != null && notes == null -> notes = usable
             }
             consumedLines += lineIndex
             if (valueLine != lineIndex) consumedLines += valueLine
             bareFrom = if (valueEnd > valueStart) valueEnd else valueStart
         }
 
-        // ── 第三步：从整段里找网址（哪怕没有 url 这个 key）──────────
+        // ── 第三步：链接里的凭据 ─────────────────────────────────
+        // 抓包/抓取工具导出的东西常写成 `https://user:pass@host`。
+        // 这一步必须排在"整段里找网址"前面：否则整行先被当成网址吃掉，
+        // 账号会变成 `Demo%40123@example.com/login` 这种残渣。
+        // 逐行找而不是全段找 —— 一次粘好几条链接时，全段只能捞到第一条。
+        if (username == null || password == null) {
+            for (line in text.split('\n')) {
+                val m = URL_USERINFO_REGEX.find(line) ?: continue
+                if (username == null) username = percentDecode(m.groupValues[1]).ifBlank { null }
+                if (password == null) password = percentDecode(m.groupValues[2]).ifBlank { null }
+                if (url == null) url = cleanUrl(line)
+                if (username != null && password != null) break
+            }
+        }
+
+        // ── 第四步：从整段里找网址（哪怕没有 url 这个 key）──────────
         if (url == null) {
             URL_REGEX.find(text)?.let { url = cleanUrl(it.value) }
         }
         if (url == null) {
-            // 裸域名。要排除 kv 已被用掉的用户名/标题，避免把 `admin.com` 当站点
-            HOST_REGEX.findAll(text)
-                .map { it.value }
-                .firstOrNull { it != username && it != password && !it.endsWith(".apk") }
-                ?.let { url = cleanUrl(it) }
+            // 裸域名。要排除 kv 已被用掉的用户名/密码，也要排除邮箱 ——
+            // 否则 `demo.gmail@example.com` 会先把 `demo.gmail` 当成站点。
+            url = firstHostOutsideEmail(text, listOfNotNull(username, password))
         }
 
-        // 抓包/抓取工具导出的链接里常把账号密码塞在 @ 前面
-        if (username == null && password == null) {
-            URL_USERINFO_REGEX.find(text)?.let { m ->
-                username = m.groupValues[1].ifBlank { null }
-                password = m.groupValues[2].ifBlank { null }
-            }
-        }
-
-        // ── 第四步：剩下的行按位置猜 ─────────────────────────────
+        // ── 第五步：剩下的行按位置猜 ─────────────────────────────
         val leftovers = text.split('\n')
             .mapIndexed { index, line -> index to line.stripLineIndex().edgeTrim() }
             .filter { (index, line) ->
@@ -307,8 +401,18 @@ object CredentialParser {
                 if (title == null && mixed.user == null) title = mixed.head
             } else {
                 // 「账号:密码」连写：`zhang@qq.com:abc123`、`admin:p@ssw0rd`
-                val colonPair = leftovers.singleOrNull()?.let { splitAccountColonPassword(it) }
-                if (colonPair != null && username == null && password == null) {
+                // 三个冒号的「标签:账号:密码」（`微信:demo_wx:Wx@123`）也在这里认。
+                val chain = leftovers.singleOrNull()?.let { splitColonChain(it) }
+                val colonPair = if (chain == null) {
+                    leftovers.singleOrNull()?.let { splitAccountColonPassword(it) }
+                } else {
+                    null
+                }
+                if (chain != null) {
+                    if (title == null) title = chain.first
+                    if (username == null) username = chain.second
+                    if (password == null) password = chain.third
+                } else if (colonPair != null && username == null && password == null) {
                     username = colonPair.first
                     password = colonPair.second
                 } else {
@@ -318,6 +422,12 @@ object CredentialParser {
                     if (title == null) title = guess.third
                 }
             }
+        }
+
+        // 标题还空着、但剩下的行里有一行干干净净的平台名（`淘宝`），就拿它当标题。
+        // 这一步排在"按位置猜"之后：猜出来的标题更可信，只有没猜着时才补。
+        if (title == null) {
+            title = leftovers.firstOrNull { isPlainSiteName(it) }
         }
 
         // 纯标点不算凭据。粘贴一段"、、；！！"之类的东西时不该弹"检测到账号密码"。
@@ -334,7 +444,8 @@ object CredentialParser {
             username = username?.trim()?.ifBlank { null },
             password = password, // 密码不做任何 trim / 归一化，见类注释
             url = url?.trim()?.ifBlank { null },
-            title = title?.trim()?.ifBlank { null }
+            title = title?.trim()?.ifBlank { null },
+            notes = notes?.trim()?.ifBlank { null }
         )
         return if (result.isEmpty) null else result
     }
@@ -364,7 +475,11 @@ object CredentialParser {
 
         val text = raw.replace("\r\n", "\n").replace('\r', '\n')
 
-        // 0) 分隔线分段：`---` 之类在记事本里就是"下一条"的意思
+        // 0) JSON 数组 / 一整张表：字段名是显式的，别再让"按位置猜"的规则去猜
+        jsonRecords(text)?.let { if (it.size >= 2) return it }
+        tableRecords(text).let { if (it.size >= 2) return it }
+
+        // 1) 分隔线分段：`---` 之类在记事本里就是"下一条"的意思
         val sections = splitBySeparator(text)
         if (sections.size >= 2) {
             val parsed = sections.mapNotNull { parse(it) }.filter { it.hasCredential }
@@ -379,6 +494,13 @@ object CredentialParser {
         //    下面几条规则全都认不出（每行切不出 ≥2 段、没有空行、没有重复的 key），
         //    只会退化成一条错的 —— 标题丢了，账号变成整行，后面的行整段消失。
         if (lines.size >= 2 && lines.all { splitMixed(it) != null }) {
+            val parsed = lines.mapNotNull { parse(it) }.filter { it.hasCredential }
+            if (parsed.size >= 2) return parsed
+        }
+
+        // 2) 一行一条「标签:账号:密码」：`微信:demo_wx_001:Wx@123456`。
+        //    三个冒号的形状以前一条都认不出 —— 整行被当账号、后面的行全丢。
+        if (lines.size >= 2 && lines.all { splitColonChain(it) != null }) {
             val parsed = lines.mapNotNull { parse(it) }.filter { it.hasCredential }
             if (parsed.size >= 2) return parsed
         }
@@ -567,10 +689,15 @@ object CredentialParser {
                 // 所以据此把两段判成「标题 账号」。
                 parts.size == 2 -> {
                     val head = parts[0]
-                    if (isPlainSiteName(head) && parts[1].any { it.isDigit() }) {
-                        Triple(parts[1], null, head)
+                    val tail = parts[1]
+                    // 两段全是汉字（`项目,说明`、`淘宝,购物用`）多半是标签列或一句
+                    // 说明，不是账号密码。真实的账号或密码至少带字母/数字/符号。
+                    if (isPlainSiteName(head) && isPlainSiteName(tail)) {
+                        Triple(null, null, null)
+                    } else if (isPlainSiteName(head) && tail.any { it.isDigit() }) {
+                        Triple(tail, null, head)
                     } else {
-                        Triple(parts[0], parts[1], null)
+                        Triple(head, tail, null)
                     }
                 }
                 parts.isEmpty() -> Triple(null, null, null)
@@ -758,5 +885,268 @@ object CredentialParser {
     private fun isLabelWord(value: String): Boolean {
         val v = value.lowercase().edgeTrim()
         return v in HEADER_WORDS
+    }
+
+    // ── 表格与 JSON ─────────────────────────────────────────────
+
+    /**
+     * 表头或 JSON 键名属于哪一列。认不出返回 null。
+     *
+     * 头尾的引号、方括号、括号里的单位（`密码（选填）`）都先剥掉，
+     * 因为从 Excel 粘出来的表头经常带这些。
+     */
+    private fun columnOf(token: String?): Column? {
+        if (token == null) return null
+        val t = token.trim()
+            .trim('"', '\'', '「', '」', '【', '】')
+            .substringBefore('(')
+            .substringBefore('（')
+            .replace(" ", "")
+            .trim()
+            .lowercase()
+        if (t.isEmpty()) return null
+        return when {
+            t in USER_KEYS -> Column.USER
+            t in PASS_KEYS -> Column.PASS
+            t in TITLE_KEYS -> Column.TITLE
+            t in URL_KEYS -> Column.URL
+            t in NOTES_KEYS -> Column.NOTES
+            t in IGNORE_KEYS -> Column.IGNORE
+            else -> null
+        }
+    }
+
+    /**
+     * 一整张表：第一行是表头，后面每行一条记录。
+     *
+     * CSV 与制表符表格是同一种东西，只是分隔符不同，所以统一按"挑分隔符"
+     * 处理。**必须认出账号列和密码列**才算表格 —— 否则 `a,b` 这种两列文本
+     * 也会被当成表，把本来能按位置猜出来的东西拆坏。
+     */
+    private fun tableRecords(text: String): List<Result> {
+        val lines = text.split('\n')
+            .map { it.stripLineIndex().edgeTrim() }
+            .filter { it.isNotEmpty() && !isSeparatorLine(it) }
+        if (lines.size < 2) return emptyList()
+
+        val delimiter = pickDelimiter(lines) ?: return emptyList()
+        val header = splitCells(lines[0], delimiter)
+        if (header.size < 2) return emptyList()
+
+        val columns = header.map { columnOf(it) }
+        if (Column.USER !in columns || Column.PASS !in columns) return emptyList()
+
+        return lines.drop(1).mapNotNull { line ->
+            val cells = splitCells(line, delimiter)
+            if (cells.size < 2) return@mapNotNull null
+            var user: String? = null
+            var pass: String? = null
+            var title: String? = null
+            var url: String? = null
+            var notes: String? = null
+            columns.forEachIndexed { index, column ->
+                val cell = cells.getOrNull(index)?.ifBlank { null } ?: return@forEachIndexed
+                when (column) {
+                    Column.USER -> if (user == null) user = cell
+                    Column.PASS -> if (pass == null) pass = cell
+                    Column.TITLE -> if (title == null) title = cell
+                    Column.URL -> if (url == null) url = cleanUrl(cell) ?: cell
+                    Column.NOTES -> if (notes == null) notes = cell
+                    Column.IGNORE, null -> Unit
+                }
+            }
+            Result(username = user, password = pass, url = url, title = title, notes = notes)
+                .takeIf { it.hasCredential }
+        }
+    }
+
+    /** 前几行都含有的那个分隔符。都有多个时按 [TABLE_DELIMITERS] 的顺序取第一个。 */
+    private fun pickDelimiter(lines: List<String>): Char? {
+        val sample = lines.take(4)
+        return TABLE_DELIMITERS.firstOrNull { delimiter ->
+            sample.all { it.count { ch -> ch == delimiter } >= 1 } &&
+                sample.first().count { ch -> ch == delimiter } >= 1
+        }
+    }
+
+    /** 按分隔符切单元格，顺手剥掉 CSV 的引号。 */
+    private fun splitCells(line: String, delimiter: Char): List<String> =
+        line.split(delimiter).map { cell ->
+            val t = cell.trim()
+            val quoted = t.length >= 2 &&
+                ((t.startsWith("\"") && t.endsWith("\"")) || (t.startsWith("'") && t.endsWith("'")))
+            if (quoted) t.substring(1, t.length - 1).trim() else t
+        }
+
+    /**
+     * JSON 对象里的一条记录。只取第一个 `{...}` —— 多个对象是"多条"，
+     * 那是 [parseMany] 的事，[parse] 只负责一条。
+     *
+     * 刻意不用 `org.json`：它是 Android SDK 里的桩，JVM 单测一调就抛
+     * "not mocked"，而识别逻辑必须在单测里跑得起来。
+     */
+    private fun jsonRecord(text: String): Result? {
+        val scope = JSON_OBJECT_REGEX.find(text)?.value ?: text
+        if (!scope.contains(':')) return null
+        var user: String? = null
+        var pass: String? = null
+        var title: String? = null
+        var url: String? = null
+        var notes: String? = null
+        var recognized = false
+        JSON_FIELD_REGEX.findAll(scope).forEach { match ->
+            val key = match.groupValues[1]
+            val raw = match.groupValues[2].ifBlank { match.groupValues[3] }
+            val value = unescapeJson(raw).ifBlank { null } ?: return@forEach
+            when (columnOf(key)) {
+                Column.USER -> if (user == null) user = value
+                Column.PASS -> if (pass == null) pass = value
+                Column.TITLE -> if (title == null) title = value
+                Column.URL -> if (url == null) url = cleanUrl(value) ?: value
+                Column.NOTES -> if (notes == null) notes = value
+                Column.IGNORE, null -> Unit
+            }
+            recognized = true
+        }
+        if (!recognized) return null
+        return Result(username = user, password = pass, url = url, title = title, notes = notes)
+            .takeIf { it.hasCredential }
+    }
+
+    /** 一段文字里的多个 JSON 对象（≥2 条记录才返回）。 */
+    private fun jsonRecords(text: String): List<Result>? {
+        if (!text.contains('{')) return null
+        val objects = JSON_OBJECT_REGEX.findAll(text).map { it.value }.toList()
+        if (objects.size < 2) return null
+        val records = objects.mapNotNull { jsonRecord(it) }.filter { it.hasCredential }
+        return records.takeIf { it.size >= 2 }
+    }
+
+    /** JSON 字符串里的转义还原。只处理常见的几个，够了。 */
+    private fun unescapeJson(raw: String): String {
+        if (!raw.contains('\\')) return raw
+        val sb = StringBuilder(raw.length)
+        var i = 0
+        while (i < raw.length) {
+            val c = raw[i]
+            if (c == '\\' && i + 1 < raw.length) {
+                when (val next = raw[i + 1]) {
+                    'n' -> sb.append('\n')
+                    'r' -> sb.append('\r')
+                    't' -> sb.append('\t')
+                    '"' -> sb.append('"')
+                    '\\' -> sb.append('\\')
+                    '/' -> sb.append('/')
+                    'u' -> {
+                        val hex = raw.substring(i + 2, minOf(i + 6, raw.length))
+                        val code = hex.toIntOrNull(16)
+                        if (code != null) {
+                            sb.append(code.toChar())
+                            i += 6
+                            continue
+                        }
+                        sb.append(next)
+                    }
+                    else -> sb.append(next)
+                }
+                i += 2
+            } else {
+                sb.append(c)
+                i++
+            }
+        }
+        return sb.toString()
+    }
+
+    // ── 一行三段的「标签:账号:密码」 ───────────────────────────
+
+    /** 这些词是"字段名"而不是平台名，不能拿来当标题。 */
+    private val GENERIC_USER_WORDS = setOf(
+        "账号", "帐号", "账户", "用户名", "登录名", "用户",
+        "account", "username", "user", "userid", "login"
+    )
+
+    /**
+     * `微信:demo_wx_001:Wx@123456` —— 一行里两个冒号，依次是标签、账号、密码。
+     *
+     * 这种形状早先什么规则都不匹配：认不出字段名、没有空白、冒号又不是一个
+     * （[splitAccountColonPassword] 要求恰好一个），于是整行被当成账号，
+     * 后面的行整段消失。用户的原话是「这种识别不出来」。
+     */
+    private fun splitColonChain(line: String): Triple<String?, String?, String?>? {
+        if (line.contains("://")) return null
+        if (line.any { it.isWhitespace() }) return null
+        val parts = line.split(':', '：').map { it.trim() }
+        if (parts.size < 3) return null
+        if (parts.any { it.isEmpty() }) return null
+
+        val head = parts[0]
+        val kind = columnOf(head)
+        val user = parts[1]
+        val pass = parts.drop(2).joinToString(":")
+
+        val title: String? = when (kind) {
+            // `账号:admin:abc123`：头是字段名，不是平台名
+            Column.USER -> if (head.lowercase() in GENERIC_USER_WORDS) null else head
+            Column.TITLE -> head
+            null -> {
+                // 既不是字段名，就得像个平台名：纯中文短语，或全是字母的英文站名
+                if (!isPlainSiteName(head) && head.any { it.code < 0x2E80 }) return null
+                head
+            }
+            else -> return null
+        }
+        return Triple(title, user, pass)
+    }
+
+    // ── 网址 ────────────────────────────────────────────────────
+
+    /** 第一个"不在邮箱里"的裸域名。邮箱两侧的 host 段都要跳过。 */
+    private fun firstHostOutsideEmail(text: String, ignore: List<String>): String? {
+        for (match in HOST_REGEX.findAll(text)) {
+            val before = text.getOrNull(match.range.first - 1)
+            val after = text.getOrNull(match.range.last + 1)
+            if (before == '@' || after == '@') continue
+            val value = match.value
+            if (ignore.any { it == value }) continue
+            if (value.endsWith(".apk", ignoreCase = true)) continue
+            return value
+        }
+        return null
+    }
+
+    /**
+     * 链接 userinfo 里的百分号编码还原：`Demo%40123` → `Demo@123`。
+     *
+     * 这一步是"还原原文"而不是"改值" —— 链接里的账号密码本来就是编码过的，
+     * 存 `Demo%40123` 拿去登录必然失败。只认 `%` 后跟两位合法十六进制的形式，
+     * 其他一律原样留着。
+     */
+    private fun percentDecode(raw: String): String {
+        if (!raw.contains('%')) return raw
+        val pending = java.io.ByteArrayOutputStream()
+        val out = StringBuilder(raw.length)
+        var i = 0
+        while (i < raw.length) {
+            val c = raw[i]
+            if (c == '%' && i + 2 < raw.length) {
+                val code = raw.substring(i + 1, i + 3).toIntOrNull(16)
+                if (code != null) {
+                    pending.write(code)
+                    i += 3
+                    continue
+                }
+            }
+            if (pending.size() > 0) {
+                out.append(String(pending.toByteArray(), Charsets.UTF_8))
+                pending.reset()
+            }
+            out.append(c)
+            i++
+        }
+        if (pending.size() > 0) {
+            out.append(String(pending.toByteArray(), Charsets.UTF_8))
+        }
+        return out.toString()
     }
 }

@@ -52,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -188,6 +189,16 @@ fun EntryEditScreen(
      */
     var pasteText by remember { mutableStateOf("") }
 
+    /**
+     * 从外部（剪贴板）往文本框里灌了一次就加一，用来强制重建输入框。
+     *
+     * 有用户反馈"点读剪贴板后框里没字，但下面写着认出两组"。这是 Compose
+     * 输入框的老毛病：`value` 从外部一次性替换、且当时没有焦点时，内部的
+     * 选区状态可能停在旧位置，视觉上就像没灌进去。换 key 重造最省事，
+     * 也不影响手打 —— 手打时不加这个数。
+     */
+    var pasteToken by remember { mutableStateOf(0) }
+
     /** 批量确认框里正在看的那几组；非 null 即对话框打开。 */
     var batchRows by remember { mutableStateOf<List<CredentialParser.Result>?>(null) }
 
@@ -259,6 +270,9 @@ fun EntryEditScreen(
             revealed = true
         }
         parsed.url?.let { url = it }
+        // 备注带着走。此前识别器把整行「备注：备用密码在邮箱里」当字段名丢掉，
+        // 用户在粘贴框里根本看不到它，现在补到表单上。
+        parsed.notes?.let { if (notes.isBlank()) notes = it }
         if (title.isBlank()) {
             title = parsed.title ?: parsed.url ?: ""
         }
@@ -319,7 +333,7 @@ fun EntryEditScreen(
                         username = user,
                         password = row.password?.toCharArray(),
                         url = row.url,
-                        notes = null,
+                        notes = row.notes,
                         totp = null,
                         categoryId = null,
                         favorite = false,
@@ -365,6 +379,7 @@ fun EntryEditScreen(
             return
         }
         pasteText = text
+        pasteToken++
     }
 
     /** 把认出的一条写进表单，然后清空粘贴框 —— 内容已经进表单了，留着只会碍事。 */
@@ -616,6 +631,7 @@ fun EntryEditScreen(
                     text = pasteText,
                     onTextChange = { pasteText = it },
                     rows = pasteRows,
+                    resetKey = pasteToken,
                     enabled = !busy,
                     onReadClipboard = { readClipboardIntoField() },
                     onClear = { pasteText = "" },
@@ -1359,6 +1375,7 @@ private fun PasteField(
     text: String,
     onTextChange: (String) -> Unit,
     rows: List<CredentialParser.Result>,
+    resetKey: Int,
     enabled: Boolean,
     onReadClipboard: () -> Unit,
     onClear: () -> Unit,
@@ -1381,20 +1398,34 @@ private fun PasteField(
 
         Spacer(Modifier.height(8.dp))
 
-        OutlinedTextField(
-            value = text,
-            onValueChange = onTextChange,
-            placeholder = {
-                // 示例一律用编造的值。真实密码绝不该出现在界面文案、截图或仓库里。
-                Text("一行一条，也可以写成「账号：xxx 密码：xxx」\n例如：某某平台密码 abcd1234")
-            },
-            minLines = 3,
-            maxLines = 7,
-            enabled = enabled,
-            // 等宽字体：密码里 0 与 O、1 与 l 的差别，一眼能看出来
-            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-            modifier = Modifier.fillMaxWidth()
-        )
+        // resetKey 变一次就重造这个输入框：从剪贴板整体灌入时，Compose 的
+        // 输入框偶尔不把新文字画出来（下面却已经认出两组），换 key 最省事。
+        key(resetKey) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = onTextChange,
+                placeholder = {
+                    // 示例一律用编造的值。真实密码绝不该出现在界面文案、截图或仓库里。
+                    Text("一行一条，也可以写成「账号：xxx 密码：xxx」\n例如：某某平台密码 abcd1234")
+                },
+                minLines = 3,
+                maxLines = 7,
+                enabled = enabled,
+                // 等宽字体：密码里 0 与 O、1 与 l 的差别，一眼能看出来
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        // 灌进来的东西到底有没有进来，用它自己说一句 —— 用户的原话是
+        // "读出剪贴板后剪贴板不显示"，光靠输入框没法确认是不是空的。
+        if (text.isNotEmpty()) {
+            Text(
+                text = "${text.lines().size} 行 · ${text.length} 字",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onReadClipboard, enabled = enabled) {
