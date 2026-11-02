@@ -4,7 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +23,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -34,10 +39,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,13 +66,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.yg.vaultbook.core.util.CredentialParser
 import com.yg.vaultbook.core.util.EntrySignature
+import com.yg.vaultbook.core.util.Normalize
 import com.yg.vaultbook.core.util.PasswordStrength
+import com.yg.vaultbook.core.util.Pinyin
 import com.yg.vaultbook.core.util.Totp
 import com.yg.vaultbook.data.VaultGateway
 import com.yg.vaultbook.data.entity.AuditLogEntity
@@ -178,6 +190,22 @@ fun EntryEditScreen(
 
     /** 批量确认框里正在看的那几组；非 null 即对话框打开。 */
     var batchRows by remember { mutableStateOf<List<CredentialParser.Result>?>(null) }
+
+    // 分类弹层。分类数量上来以后，把整排 chip 铺在表单里等于用一个次要字段
+    // 挤占主表单的高度，所以改成按需展开。
+    var categoryPickerOpen by remember { mutableStateOf(false) }
+
+    /**
+     * 进来时那一刻的字段快照。
+     *
+     * 用途只有一个：点关闭 / 按返回键时判断"到底改没改"。
+     * 没改就直接退出，改了就问一句 —— 手滑点到返回就丢掉刚写的密码，
+     * 是录入页最容易被骂的一种失败。
+     */
+    var baseline by remember { mutableStateOf<String?>(null) }
+
+    /** 非 null 即"要丢掉这些改动吗"的确认框打开了。 */
+    var confirmDiscard by remember { mutableStateOf(false) }
 
     /**
      * 粘贴框里的识别结果，随输入实时更新。
@@ -345,6 +373,44 @@ fun EntryEditScreen(
         pasteText = ""
     }
 
+    /**
+     * 当前表单内容的一把"指纹"。
+     *
+     * 用拼接字符串而不是重写 equals：字段就这些，逐项比较要写十行，
+     * 拼起来一行就够，且任何一处改动都会让指纹变。
+     * 分隔符用不可能出现在输入里的控制字符，避免"标题写 a、账号写 b"
+     * 和"标题写 ab"撞成同一个指纹。
+     */
+    fun signature(): String = buildString {
+        append(title).append('\u0002')
+        append(username).append('\u0002')
+        append(password).append('\u0002')
+        append(url).append('\u0002')
+        append(notes).append('\u0002')
+        append(totp).append('\u0002')
+        append(categoryId ?: "").append('\u0002')
+        append(favorite).append('\u0002')
+        customFields.forEach {
+            append(it.id ?: "").append('\u0001')
+            append(it.label).append('\u0001')
+            append(it.value).append('\u0001')
+            append(it.type).append('\u0002')
+        }
+    }
+
+    fun dirty(): Boolean = baseline?.let { it != signature() } ?: false
+
+    /**
+     * 关闭前的总闸。
+     *
+     * 三条退出路径（左上关闭、系统返回键、保存成功）都走这里，
+     * 但它们的行为不一样：保存成功是"事情办完了"，不该再问一遍；
+     * 所以保存处仍直接调 [onDone]，只有"用户主动退出"才拦。
+     */
+    fun requestClose() {
+        if (busy || !dirty()) onDone() else confirmDiscard = true
+    }
+
     // 从别的应用分享进来：直接识别并填入。
     // 分享是明确意图（用户主动选了发到VaultBook），所以不像剪贴板那样只给提示卡。
     LaunchedEffect(sharedText) {
@@ -378,6 +444,9 @@ fun EntryEditScreen(
             }
             loading = false
         }
+        // 记下"刚进来长什么样"。新建页也记 —— 用户可能只是点进来看看，
+        // 什么都没写就退出，这时候不该弹"要丢掉吗"。
+        baseline = signature()
     }
 
     val strengthScore = remember(password) {
@@ -475,15 +544,48 @@ fun EntryEditScreen(
             VaultTopBar(
                 title = if (isEdit) "编辑条目" else "新建条目",
                 subtitle = "账号可以空着，只存平台和密码也行",
-                onBack = onDone,
+                onBack = { requestClose() },
                 backIcon = Icons.Filled.Close,
-                backLabel = "关闭",
-                actions = {
-                    TextButton(onClick = { commit() }, enabled = !busy && !loading) {
-                        Text("保存", style = MaterialTheme.typography.labelLarge)
+                backLabel = "关闭"
+            )
+        },
+        bottomBar = {
+            // 保存挪到底部常驻。原来顶部有「保存」、表单末尾还有一颗大按钮，
+            // 但两颗都在"滚动的尽头"或"视线之外"——放在底栏是手机上最不会漏的位置。
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    if (isEdit) {
+                        TextButton(onClick = { remove() }, enabled = !busy) {
+                            Text("删除", color = MaterialTheme.colorScheme.error)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Button(
+                        onClick = { commit() },
+                        enabled = !busy && !loading,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.height(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Text(if (isEdit) "保存修改" else "保存")
+                        }
                     }
                 }
-            )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
@@ -521,7 +623,16 @@ fun EntryEditScreen(
                     onBatch = { batchRows = pasteRows }
                 )
                 Spacer(Modifier.height(14.dp))
+            } else {
+                // 编辑时先报一遍"这里到底能改什么"。
+                // 用户原话："点击编辑里只能更改标题名，并没有其他内容" —— 字段其实都在，
+                // 只是排在一屏之外，眼睛扫到第一个输入框就以为到头了。
+                // 一行字比再加十个控件都管用。
+                EditableHint()
+                Spacer(Modifier.height(10.dp))
             }
+
+            VaultSectionTitle("基本信息")
 
             OutlinedTextField(
                 value = title,
@@ -673,7 +784,8 @@ fun EntryEditScreen(
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
+            VaultSectionTitle("备注、分类与补充")
 
             OutlinedTextField(
                 value = notes,
@@ -692,21 +804,29 @@ fun EntryEditScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
-                // FlowRow 而不是 Row：分类多起来（用户自己建了七八个）时
-                // 单行 Row 会把最后几个挤出屏幕边缘，且没有任何换行提示。
-                FlowRow(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    categories.forEach { c ->
-                        FilterChip(
-                            selected = categoryId == c.id,
-                            onClick = {
-                                categoryId = if (categoryId == c.id) null else c.id
-                            },
-                            label = { Text(c.name) },
+                // 分类从 16 个扩到 34 个以后，一整片 chip 会把「备注」「自定义字段」
+                // 顶到好几屏以外 —— 用户说的"编辑里只有标题"有一半是这么来的：
+                // 想看的东西确实在，只是要往下滑很久才碰得到。
+                // 改成"只看当前选中的那个 + 一个选择入口"，完整列表放进弹层，
+                // 弹层里带搜索和「新建分类」，不用退出去到分类管理页。
+                val currentCategory = categories.firstOrNull { it.id == categoryId }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(
+                        selected = currentCategory != null,
+                        onClick = { categoryPickerOpen = true },
+                        label = { Text(currentCategory?.name ?: "未分类") },
+                        enabled = !busy
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = { categoryPickerOpen = true },
+                        enabled = !busy
+                    ) { Text(if (currentCategory == null) "选一个" else "更换") }
+                    if (currentCategory != null) {
+                        TextButton(
+                            onClick = { categoryId = null },
                             enabled = !busy
-                        )
+                        ) { Text("清除") }
                     }
                 }
             }
@@ -832,35 +952,6 @@ fun EntryEditScreen(
             }
 
             Spacer(Modifier.height(24.dp))
-
-            Button(
-                onClick = { commit() },
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.height(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                } else {
-                    Text("保存")
-                }
-            }
-
-            if (isEdit) {
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    onClick = { remove() },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("删除（进回收站，30 天后彻底清除）", color = MaterialTheme.colorScheme.error)
-                }
-            }
-
-            Spacer(Modifier.height(48.dp))
         }
     }
 
@@ -871,6 +962,226 @@ fun EntryEditScreen(
             onDismiss = { batchRows = null },
             onConfirm = { picked, onlyTitlePassword -> saveBatch(picked, onlyTitlePassword) }
         )
+    }
+
+    // 系统返回键与左上角关闭走同一条路：改过就问一句，没改直接走。
+    // Compose 里不接这个的话，返回键会把整页弹掉，用户写的密码直接没了。
+    BackHandler(enabled = !busy && dirty()) { confirmDiscard = true }
+
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text(if (isEdit) "不保存就退出？" else "这条不保存了？") },
+            text = { Text("刚改的内容还没存，退出去就没了。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDiscard = false
+                    onDone()
+                }) { Text("退出", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDiscard = false }) { Text("继续写") }
+            }
+        )
+    }
+
+    if (categoryPickerOpen) {
+        CategoryPickerDialog(
+            categories = categories,
+            selectedId = categoryId,
+            onSelect = { id ->
+                categoryId = id
+                categoryPickerOpen = false
+            },
+            onCreate = { name ->
+                scope.launch {
+                    val created = runCatching { repo.createCategory(name) }.getOrNull()
+                    if (created != null) {
+                        categories = repo.categories()
+                        categoryId = created
+                        categoryPickerOpen = false
+                    } else {
+                        error = "分类没建成，换个名字再试"
+                    }
+                }
+            },
+            onDismiss = { categoryPickerOpen = false }
+        )
+    }
+}
+
+/**
+ * 编辑态顶部的一句说明。
+ *
+ * 用户反馈"点编辑只能改标题，没有其他内容"——字段一直都在，
+ * 但它们排在标题下面、一屏之外，视觉上一眼看不到就等于不存在。
+ * 与其继续堆控件，不如先说清楚这里到底能改哪些东西。
+ */
+@Composable
+private fun EditableHint() {
+    Surface(
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.07f),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = "标题、账号、密码、网址、动态码、备注、分类、收藏、自定义字段都能在这里改，往下滑就能看到。",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+        )
+    }
+}
+
+/**
+ * 分类选择弹层。
+ *
+ * 三个理由做成弹层，而不是继续把 chip 铺在表单里：
+ * 1. 分类扩到三十多个以后，铺开会把备注、自定义字段顶到好几屏以外 ——
+ *    用户以为"编辑里只有标题"，其实是其余的都被挤下去了；
+ * 2. 铺开的列表没有搜索，找"医疗"要一行行看过去；
+ * 3. 想新建分类还得退出去到分类管理页，回来重新进编辑，中间表单内容全丢。
+ *
+ * 搜索用的是全项目统一的那把尺子（归一化 + 拼音首字母），
+ * 所以输 `yl` 能搜到"医疗"，输 `yiliao` 也行。
+ */
+@Composable
+private fun CategoryPickerDialog(
+    categories: List<PlainCategory>,
+    selectedId: String?,
+    onSelect: (String?) -> Unit,
+    onCreate: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var newName by remember { mutableStateOf("") }
+    var creating by remember { mutableStateOf(false) }
+
+    val filtered = remember(query, categories) {
+        val q = Normalize.forSearch(query)
+        if (q.isEmpty()) {
+            categories
+        } else {
+            categories.filter { c ->
+                Normalize.forSearch(c.name).contains(q) || Pinyin.searchKey(c.name).contains(q)
+            }
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(18.dp)) {
+                Text(
+                    text = "选择分类",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("搜索，输入首字母也行") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(6.dp))
+
+                LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    item {
+                        CategoryPickerRow(
+                            name = "未分类",
+                            selected = selectedId == null,
+                            onClick = { onSelect(null) }
+                        )
+                    }
+                    items(filtered, key = { it.id }) { c ->
+                        CategoryPickerRow(
+                            name = c.name,
+                            selected = selectedId == c.id,
+                            onClick = { onSelect(c.id) }
+                        )
+                    }
+                    if (filtered.isEmpty() && query.isNotBlank()) {
+                        item {
+                            Text(
+                                text = "没有叫「${query.trim()}」的分类，下面可以直接建一个",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp)
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(
+                    Modifier.padding(vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
+
+                if (creating) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newName,
+                            onValueChange = { newName = it },
+                            placeholder = { Text("新分类名字") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                val trimmed = newName.trim()
+                                if (trimmed.isNotEmpty()) onCreate(trimmed)
+                            },
+                            enabled = newName.isNotBlank()
+                        ) { Text("建立") }
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                // 搜索框里有字就顺手当新名字，省得再敲一遍。
+                                if (newName.isBlank() && query.isNotBlank()) newName = query.trim()
+                                creating = true
+                            }
+                        ) { Text("新建分类") }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = onDismiss) { Text("关闭") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryPickerRow(name: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 

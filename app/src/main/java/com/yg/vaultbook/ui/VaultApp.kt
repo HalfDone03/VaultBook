@@ -369,7 +369,8 @@ fun VaultApp(
                     onOpenBackup = { screen = Screen.Backup },
                     onOpenAudit = { screen = Screen.Audit },
                     onOpenCategories = { screen = Screen.Categories },
-                    onOpenSecurity = { screen = Screen.Security }
+                    onOpenSecurity = { screen = Screen.Security },
+                    onOpenTrash = { screen = Screen.Trash }
                 )
             }
 

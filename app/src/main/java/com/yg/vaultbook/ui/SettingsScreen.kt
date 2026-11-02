@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
@@ -73,6 +74,8 @@ import com.yg.vaultbook.data.VaultGateway
  * @param onOpenAudit 打开审计日志页
  * @param onOpenCategories 打开分类管理（也可从列表页进，这里放一个入口方便找）
  * @param onOpenSecurity 打开安全体检
+ * @param onOpenTrash 打开回收站。以前只有列表页右上角那个「更多」里藏着入口，
+ *   用户删完东西根本找不到回收站在哪 —— 设置页这条是补的常驻入口。
  */
 @Composable
 fun SettingsScreen(
@@ -81,7 +84,8 @@ fun SettingsScreen(
     onOpenBackup: () -> Unit,
     onOpenAudit: () -> Unit,
     onOpenCategories: () -> Unit,
-    onOpenSecurity: () -> Unit
+    onOpenSecurity: () -> Unit,
+    onOpenTrash: () -> Unit
 ) {
     val context = LocalContext.current
     val repo = remember(gateway) { gateway.repositoryOrNull() }
@@ -92,9 +96,11 @@ fun SettingsScreen(
     }
 
     var entryCount by remember(repo) { mutableIntStateOf(-1) }
+    var trashCount by remember(repo) { mutableIntStateOf(-1) }
 
     LaunchedEffect(repo) {
         entryCount = runCatching { repo.loadSummaries().size }.getOrDefault(-1)
+        trashCount = runCatching { repo.loadTrashed().size }.getOrDefault(-1)
     }
 
     // 两个系统服务当前到底开没开。
@@ -192,6 +198,18 @@ fun SettingsScreen(
 
             SectionTitle("整理")
             SettingsCard {
+                SettingRow(
+                    icon = Icons.Filled.Delete,
+                    accent = accentOf("trash"),
+                    title = "回收站",
+                    subtitle = if (trashCount > 0) {
+                        "$trashCount 条，30 天后自动清除"
+                    } else {
+                        "空着。删掉的记录先放这里"
+                    },
+                    onClick = onOpenTrash
+                )
+                RowDivider()
                 SettingRow(
                     icon = Icons.Filled.Menu,
                     accent = accentOf("category"),

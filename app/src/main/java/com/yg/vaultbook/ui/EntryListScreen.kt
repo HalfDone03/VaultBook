@@ -53,8 +53,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -311,7 +313,19 @@ fun EntryListScreen(
     fun trash(id: String) {
         scope.launch {
             runCatching { repo.trashEntry(id) }
-            snackbar.showSnackbar("已移到回收站，30 天后自动清除")
+            // 给一个「撤销」。删错一条要跑去回收站找回来，
+            // 而回收站入口本来就不好找（用户提过这点），给个当场反悔的机会最省事。
+            val result = snackbar.showSnackbar(
+                message = "已移到回收站",
+                actionLabel = "撤销",
+                withDismissAction = false,
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                runCatching { repo.restoreEntry(id) }
+                    .onSuccess { snackbar.showSnackbar("已恢复") }
+                    .onFailure { snackbar.showSnackbar("恢复失败，去回收站里找找") }
+            }
         }
     }
 

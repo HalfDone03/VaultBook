@@ -530,6 +530,24 @@ fun EntryDetailScreen(
                 }
 
                 Spacer(Modifier.height(16.dp))
+                // 编辑入口在正文里再放一颗。
+                // 顶栏那颗是图标，用户反馈"点编辑只能改标题"，说明他压根没找到
+                // 或者点错了；写清"编辑"两个字放在正文末尾，比图标可靠。
+                OutlinedButton(
+                    onClick = onEdit,
+                    enabled = !loading && !missing,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("编辑这条（标题、账号、密码、网址、备注都能改）")
+                }
+
+                Spacer(Modifier.height(4.dp))
                 TextButton(
                     onClick = { delete() },
                     enabled = !busy,

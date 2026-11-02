@@ -1098,6 +1098,15 @@ class VaultRepository(
          * 显示名可以随便改 —— 名字变了密文跟着重写就行。
          *
          * 想加新分类：往这个列表里加一行，老库下次打开会自动补上。
+         *
+         * 2026-11 扩充：原来 16 个只覆盖了"登录 / 银行 / 证件"这条主线，用户
+         * 反馈"分类的选择可以更多点"。新增的都是日常真的会记账的类别 ——
+         * 工作、学校、医院、政务、快递、出门在外的车票酒店、家里的路由器与
+         * 门锁、还有订阅和加密资产这类新东西。
+         *
+         * 新条目一律追加在末尾，**不插队**：`seedBuiltinCategoriesIfNeeded`
+         * 给新分类分配的 sort 是"当前最大值 +1"，插在中间会让老库的补种顺序
+         * 和列表顺序对不上（老库不会重排，只有新库按这里的次序来）。
          */
         private val BUILTIN_CATEGORIES = listOf(
             Triple("builtin_login", "登录", "login"),
@@ -1115,7 +1124,26 @@ class VaultRepository(
             Triple("builtin_wifi", "Wi-Fi", "wifi"),
             Triple("builtin_server", "服务器", "server"),
             Triple("builtin_note", "笔记", "note"),
-            Triple("builtin_other", "其他", "more")
+            Triple("builtin_other", "其他", "more"),
+            // ── 1.5 追加 ─────────────────────────────────────────
+            Triple("builtin_work", "工作", "work"),
+            Triple("builtin_study", "学校", "study"),
+            Triple("builtin_forum", "论坛", "forum"),
+            Triple("builtin_video", "影音", "video"),
+            Triple("builtin_music", "音乐", "music"),
+            Triple("builtin_cloud", "网盘", "cloud"),
+            Triple("builtin_food", "外卖", "food"),
+            Triple("builtin_travel", "出行", "travel"),
+            Triple("builtin_hotel", "酒店", "hotel"),
+            Triple("builtin_express", "快递", "express"),
+            Triple("builtin_medical", "医疗", "medical"),
+            Triple("builtin_gov", "政务", "gov"),
+            Triple("builtin_subscription", "订阅", "subscription"),
+            Triple("builtin_router", "路由器", "router"),
+            Triple("builtin_crypto", "加密资产", "crypto"),
+            Triple("builtin_school", "教育", "school"),
+            Triple("builtin_family", "家庭", "family"),
+            Triple("builtin_device", "设备", "device")
         )
 
         // AAD 里的字段名。改这里的字符串等于让旧数据全部解不开 —— 绝不要动。
