@@ -74,6 +74,20 @@ object BrowserHosts {
     /** 地址栏节点的 id 名特征（`viewIdResourceName` 的最后一段，小写）。 */
     private val ADDRESS_BAR_ID_HINTS = listOf("url", "omnibox", "address", "location", "search_box", "addr")
 
+    /**
+     * 名字里不带「浏览器」的浏览器品牌。
+     *
+     * 定制 ROM 与第三方浏览器有一半只叫品牌名：夸克、Via、Alook、Edge、Opera。
+     * 光看「浏览器」三个字会把它们当普通 App，标题就又取成自身工具栏。
+     * 匹配的是**整个应用名**（允许后面再跟「浏览器」），不做子串匹配 ——
+     * 否则「微软远程桌面」这类名字会被 "edge"、`"opera"` 之类的片段误伤。
+     */
+    private val BROWSER_BRANDS = setOf(
+        "夸克", "via", "alook", "firefox", "火狐", "edge", "opera", "欧朋",
+        "brave", "vivaldi", "yandex", "duckduckgo", "chrome", "chromium",
+        "safari", "samsung internet", "三星", "海豚", "soul"
+    )
+
     fun isBrowser(pkg: String?): Boolean = pkg != null && pkg in PACKAGES
 
     /**
@@ -86,7 +100,10 @@ object BrowserHosts {
      */
     fun looksLikeBrowserLabel(labels: Set<String>): Boolean = labels.any { raw ->
         val name = raw.trim().lowercase()
-        name.isNotEmpty() && (name.contains("浏览器") || name.contains("browser"))
+        if (name.isEmpty()) return@any false
+        name.contains("浏览器") ||
+            name.contains("browser") ||
+            BROWSER_BRANDS.any { name == it || name == it + "浏览器" || name.startsWith(it + "浏览器") }
     }
 
     /**

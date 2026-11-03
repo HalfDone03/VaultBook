@@ -159,13 +159,53 @@ class CaptureAccessibilityService : AccessibilityService() {
         val chosen = sheets.firstOrNull { nodes -> nodes.any { it.visible && it.password } }
             ?: sheets.firstOrNull { nodes -> nodes.any { it.visible && it.editable } }
             ?: sheets.first()
+        val primary = detectIn(chosen, pkg) ?: return null
+
+        // 密码框和一个账号框被拆到两个窗口里（登录页在网页窗口、账号框在宿主浮层）
+        // 时，只认密码那个窗口会把账号丢掉。这时把**没有密码框的其它窗口**并进来重认一次，
+        // 合起来能补出账号就用合起来的结果。
+        if (primary.password != null && primary.username == null) {
+            val extra = sheets.filter { nodes ->
+                nodes !== chosen && nodes.none { it.visible && it.password }
+            }
+            if (extra.isNotEmpty()) {
+                val merged = chosen + extra.flatten()
+                val combined = detectIn(merged, pkg)
+                if (combined != null && combined.username != null) return combined
+            }
+        }
+        return primary
+    }
+
+    /**
+     * 在给定节点集合上跑一次识别。
+     *
+     * 纯 WebView 页面（浏览器、App 内置网页登录、小程序）与原生界面的标题规则不同：
+     * 网页里"最浅的文本"永远是宿主自己的工具栏，必须往网页正文里找，
+     * 并排除宿主应用名。所以这里按「是不是浏览器」或「这一屏里有没有 WebView」
+     * 决定要不要走正文优先。
+     */
+    private fun detectIn(nodes: List<NodeSnapshot>, pkg: String): A11yLoginForm? {
         val browser = isBrowserLike(pkg)
+        val web = browser || hasWebView(nodes)
         return A11yFormDetector.detect(
-            chosen,
-            pageChrome = if (browser) appChromeLabels(pkg) else emptySet(),
-            preferContentTitle = browser
+            nodes,
+            pageChrome = if (web) appChromeLabels(pkg) else emptySet(),
+            preferContentTitle = web
         )
     }
+
+    /**
+     * 这一屏里有没有网页容器。
+     *
+     * App 内置网页登录（京东/12306/银行 App 那种）也只有 WebView，标题同浏览器一样
+     * 会被自身工具栏顶掉；判据就是节点类名里带 WebView / webkit。
+     */
+    private fun hasWebView(nodes: List<NodeSnapshot>): Boolean = nodes.any { node ->
+        val name = node.className ?: return@any false
+        name.contains("WebView", ignoreCase = true) || name.contains("webkit", ignoreCase = true)
+    }
+
 
     /**
      * 把当前每个窗口的节点树各拍平一份。
@@ -213,8 +253,14 @@ class CaptureAccessibilityService : AccessibilityService() {
      * 光靠白名单会漏掉定制 ROM 自带的浏览器（小米/红米那只就叫「浏览器」），
      * 漏掉之后标题又会退回"最浅节点"，记下来一条叫「浏览器」的账号。
      */
-    private fun isBrowserLike(pkg: String): Boolean =
-        BrowserHosts.isBrowser(pkg) || BrowserHosts.looksLikeBrowserLabel(appChromeLabels(pkg))
+    private fun isBrowserLike(pkg: String): Boolean {
+        // 网页有时跑在子进程里（`com.xxx:browser`、`:sandbox`），事件里的包名带冒号后缀，
+        // 直接查白名单必然查不到，标题就退回"最浅节点"。所以先剥掉进程后缀再判。
+        val base = pkg.substringBefore(':')
+        return BrowserHosts.isBrowser(pkg) ||
+            BrowserHosts.isBrowser(base) ||
+            BrowserHosts.looksLikeBrowserLabel(appChromeLabels(pkg))
+    }
 
     /**
      * 宿主应用自己的界面文案（浏览器名）。
@@ -226,9 +272,9 @@ class CaptureAccessibilityService : AccessibilityService() {
      */
     @Suppress("DEPRECATION")
     private fun appChromeLabels(pkg: String): Set<String> = runCatching {
-        val label = packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0))
-            ?.toString()
-            ?.trim()
+        // 事件可能来自网页的子进程（`com.xxx:browser`、`:sandbox`），那种包名查不到
+        // 应用信息；退回主包名再查一次，否则排除集为空、标题又变回应用名。
+        val label = labelOf(pkg) ?: labelOf(pkg.substringBefore(':'))
         buildSet {
             if (!label.isNullOrEmpty()) {
                 add(label)
@@ -237,6 +283,15 @@ class CaptureAccessibilityService : AccessibilityService() {
             }
         }
     }.getOrDefault(emptySet())
+
+    @Suppress("DEPRECATION")
+    private fun labelOf(pkg: String): String? = runCatching {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0))
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
 
     @Suppress("DEPRECATION")
     private fun flatten(root: AccessibilityNodeInfo, out: MutableList<NodeSnapshot>) {

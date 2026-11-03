@@ -314,4 +314,45 @@ class A11yFormDetectorTest {
         assertNull(form.pageTitle)
         assertEquals("pw", form.password)
     }
+
+    @Test
+    fun `内置网页登录页的标题取页面标题而不是应用名`() {
+        // App 自带的网页登录（京东、12306、银行这类）与浏览器同病：
+        // 最浅的文本是 App 自己的标题栏，标题会记成「京东」。
+        val nodes = listOf(
+            label("京东", depth = 0),
+            label("京东账号登录", depth = 2),
+            field("jd_1", "账号").copy(depth = 2),
+            pwd("pw").copy(depth = 3)
+        )
+        val form = A11yFormDetector.detect(
+            nodes,
+            pageChrome = setOf("京东"),
+            preferContentTitle = true
+        )
+        assertEquals("京东账号登录", form.pageTitle)
+        assertEquals("jd_1", form.username)
+    }
+
+    @Test
+    fun `网页不暴露标题文本时从描述里取`() {
+        // 有的 WebView 只把标题放进 contentDescription，文本节点一个都没有。
+        val nodes = listOf(
+            label("夸克", depth = 0),
+            NodeSnapshot(
+                className = "android.webkit.WebView",
+                description = "QQ邮箱 - 登录",
+                depth = 1
+            ),
+            field("qq_1", "账号").copy(depth = 3),
+            pwd("pw").copy(depth = 4)
+        )
+        val form = A11yFormDetector.detect(
+            nodes,
+            pageChrome = setOf("夸克"),
+            preferContentTitle = true
+        )
+        assertEquals("QQ邮箱", form.pageTitle)
+        assertEquals("qq_1", form.username)
+    }
 }

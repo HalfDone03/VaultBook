@@ -69,7 +69,10 @@ object A11yFormDetector {
         "首页", "书签", "历史记录", "下载", "收藏", "窗口", "菜单", "更多",
         "分享", "刷新", "返回", "前进", "关闭", "搜索或输入网址", "搜索或输入网站",
         "输入网址", "搜索", "取消", "确定", "完成", "设置",
-        "new tab", "incognito", "bookmarks", "history", "downloads", "settings"
+        "标签页", "切换标签页", "关闭标签页", "新建", "主页", "下载管理",
+        "夜间模式", "无图模式", "阅读模式", "网页", "工具", "退出", "全屏",
+        "new tab", "incognito", "bookmarks", "history", "downloads", "settings",
+        "tabs", "tab", "home", "share", "reload", "close", "menu", "more"
     )
 
     /**
@@ -291,6 +294,19 @@ object A11yFormDetector {
             val below = usable.filter { it.depth > chromeDepth }
             val pool = if (below.any()) below else usable
             pool.minByOrNull { it.depth }?.let { return tidyPageTitle(it.text) }
+
+            // 有些 WebView 不把网页标题放进 text，只放进 contentDescription
+            // （尤其 App 内置网页登录、小程序的标题栏）。正文节点一个都没有时
+            // 拿描述兜一层，仍然排除宿主自己的界面文案与工具栏字眼。
+            nodes.asSequence()
+                .filter { !it.editable && it.text.isNullOrBlank() }
+                .mapNotNull { node -> node.description?.trim() }
+                .firstOrNull { d ->
+                    d.length in 2..80 &&
+                        pageChrome.none { it.isNotBlank() && d.equals(it, ignoreCase = true) } &&
+                        d.lowercase() !in CHROME_WORDS
+                }
+                ?.let { return tidyPageTitle(it) }
         }
         return usable.minByOrNull { it.depth }?.text?.trim()
     }
