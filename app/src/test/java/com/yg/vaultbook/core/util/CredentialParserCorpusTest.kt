@@ -2351,6 +2351,45 @@ class CredentialParserCorpusTest {
             "账号 tb_55 密码 [Tb@555555]",
             listOf(Row(null, "tb_55", "Tb@555555"))
         ),
+        Case(
+            "平台名密码值全粘一起",
+            "微软账户密码Zx8Kq2Lm7V1",
+            listOf(Row("微软账户", null, "Zx8Kq2Lm7V1"))
+        ),
+        Case(
+            "粘连值后面带个点",
+            "医保平台密码Ab@123456.",
+            listOf(Row("医保平台", null, "Ab@123456."))
+        ),
+        Case(
+            "粘连中间空一格",
+            "个人所得税app密码 Zx8Kq2Lm7V!",
+            listOf(Row("个人所得税app", null, "Zx8Kq2Lm7V!"))
+        ),
+        Case(
+            "字段名写了两遍还空两格",
+            "计算机网站密码密码  Zx8Kq2Lm7V!!",
+            listOf(Row("计算机网站", null, "Zx8Kq2Lm7V!!"))
+        ),
+        Case(
+            "英文平台名配粘连密码",
+            "Cloudflare密码 Zx8Kq2Lm7V!",
+            listOf(Row("Cloudflare", null, "Zx8Kq2Lm7V!"))
+        ),
+        Case(
+            "值尾巴是中文引号",
+            "腾讯服务器密码Zx8Kq2Lm7V!’",
+            listOf(Row("腾讯服务器", null, "Zx8Kq2Lm7V!’"))
+        ),
+        Case(
+            "多行都是平台名加密码没有账号",
+            "微软账户密码Zx8Kq2Lm7V1\n医保平台密码Ab@123456.\n学信网密码Cd@654321",
+            listOf(
+                Row("微软账户", null, "Zx8Kq2Lm7V1"),
+                Row("医保平台", null, "Ab@123456."),
+                Row("学信网", null, "Cd@654321")
+            )
+        ),
     )
 
     @Test

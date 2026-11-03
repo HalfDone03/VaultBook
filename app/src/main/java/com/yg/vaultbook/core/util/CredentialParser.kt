@@ -360,7 +360,25 @@ object CredentialParser {
     /**
      * 主入口。`raw` 为空或认不出任何东西时返回 null。
      */
-    fun parse(raw: String?): Result? {
+    fun parse(raw: String?): Result? = parseRaw(raw)
+        ?.dropTitleGluedAccount()
+        ?.dropDoubledLabel(raw)
+
+    /**
+     * 标题尾巴上多留了一个字段名：`计算机网站密码密码  Zx8Kq2Lm7V` 会把标题认成
+     * 「计算机网站密码」。原文里同一个字段名连着写了两遍时，标题只该留前一半。
+     */
+    private fun Result.dropDoubledLabel(raw: String?): Result {
+        val name = title ?: return this
+        if (raw == null) return this
+        val suffix = listOf("密码", "密碼", "口令", "账号", "帐号", "账户")
+            .firstOrNull { name.endsWith(it) } ?: return this
+        if (!raw.contains(suffix + suffix)) return this
+        val trimmed = name.dropLast(suffix.length).trim()
+        return if (trimmed.isEmpty()) this else copy(title = trimmed)
+    }
+
+    private fun parseRaw(raw: String?): Result? {
         if (raw.isNullOrBlank()) return null
 
         // 顺手去掉 BOM：从 Excel、CSV 里复制出来的文本开头常带一个，
@@ -731,6 +749,9 @@ object CredentialParser {
             password = null
         }
 
+        // `计算机网站密码密码  Zx8Kq2Lm7V`：按位置猜会把「平台名+密码」当成账号，
+        // 于是多出一个「账号 = 平台名 密码」。这条判断放在 [parse] 外层统一做，
+        // 因为第零步那些"直接 return"的分支不经过这里。
         val result = Result(
             username = username?.trim()?.ifBlank { null },
             password = password, // 密码不做任何 trim / 归一化，见类注释
@@ -831,6 +852,17 @@ object CredentialParser {
             ) {
                 return perLine
             }
+        }
+
+        // 0.65) 每行都是「平台名 + 密码 + 值」，既没有账号也没有任何分隔符：
+        //       `微软账户密码Zx8Kq2Lm7V`、`Cloudflare密码 Zx8Kq2Lm7V!`。
+        //       这种行单独 parse 都成，但整段粘一起时上面每条分支都要么要求
+        //       "账号和密码都齐"、要么要求某一格分隔符，于是整段并成一条错的。
+        if (lines.size >= 2 &&
+            lines.none { line -> line.any { it == ':' || it == '：' || it == '=' || it == '＝' } }
+        ) {
+            val perLine = lines.mapNotNull { line -> parse(line)?.takeIf { it.password != null } }
+            if (perLine.size == lines.size) return perLine
         }
 
         // 1) 一行一条的「连写」：`云盘账户密码Zx8Kq2Lm7V` 这种既没空格也没冒号，
@@ -2385,6 +2417,9 @@ object CredentialParser {
         if (head.any { it == '：' || it == ':' || it == '＝' || it == '=' }) return null
         val token = head.split(' ', '\t', '\u3000').lastOrNull { it.isNotBlank() } ?: return null
         val value = token.cleanValue()
+        // 平台名和字段名粘在一起时（`计算机网站密码密码  Zx8Kq2Lm7V`），左边那截只是
+        // 标题的尾巴 —— 这一行本来就没有账号，硬塞一个进去会多出一条错记录。
+        if (value.endsWith("密码") || value.endsWith("密碼") || value.endsWith("口令")) return null
         return value.takeIf { looksLikeAccountValue(it) }
     }
 
@@ -2400,6 +2435,26 @@ object CredentialParser {
         if (user.length < 6 || !looksLikeAccountValue(pass)) return this
         return copy(username = pass, password = user)
     }
+
+    /** 一整格以字段名收尾（`计算机网站密码密码`），说明那是标题而不是账号。 */
+    private val GLUED_LABEL_TAIL = Regex("(?:密码|密碼|口令|账号|帐号|账户)$")
+
+    /**
+     * 账号栏里只剩「标题后面再接一个字段名」的残渣时，把它清掉。
+     *
+     * `计算机网站密码密码  Zx8Kq2Lm7V` 按位置猜会得到「账号 = 计算机网站密码 密码」——
+     * 那种行本来就没有账号，留着会让用户看到一条假账号。
+     */
+    private fun Result.dropTitleGluedAccount(): Result {
+        val user = username ?: return this
+        val name = title ?: return this
+        val tail = user.removePrefix(name)
+        if (tail == user || !GLUED_TITLE_TAIL.matches(tail)) return this
+        return copy(username = null)
+    }
+
+    /** 账号栏里只剩「再接一个字段名」的残渣时用它判定（见 [dropTitleGluedAccount]）。 */
+    private val GLUED_TITLE_TAIL = Regex("^[\\s]*(?:密码|密碼|口令|账号|帐号|账户)+[\\s]*(?:密码|密碼|口令)?$")
 
     /** 查询串里的一段 `键=值`。 */
     private val QUERY_PARAM = Regex("(?i)[?&]([a-z账号密口令]{1,12})=([^&\\s#]{1,120})")
@@ -2467,6 +2522,10 @@ object CredentialParser {
             if (rows.any { it.size != size }) return null
             // 格子里自带字段名（`平台=微博`）时那是 labeledRows 的形状，别抢
             if (rows.any { cells -> cells.any { splitCellLabel(it) != null } }) return null
+            // 第一格以「密码／口令」收尾时（`计算机网站密码密码  Zx8Kq2Lm7V!!`），
+            // 那是「平台名 + 密码 + 值」，不是「账号 密码」两列：
+            // 按两列切会凭空造出一个账号，标题也丢。
+            if (rows.all { row -> GLUED_LABEL_TAIL.containsMatchIn(row.first().trim()) }) return null
             // 平台名写在最后（`tb_16\tTb@161616\t淘宝\t常用`）：格数照旧，
             // 但位置整体错开一格，按 标题/账号/密码 排会把平台名当成密码。
             val siteLast = size >= 3 && rows.all { row ->
