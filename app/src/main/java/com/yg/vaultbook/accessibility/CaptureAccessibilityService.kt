@@ -85,13 +85,13 @@ class CaptureAccessibilityService : AccessibilityService() {
 
                 if (hitSubmit || hadLoginForm) {
                     // 先尝试当场读树：页面还没跳走，这一秒之后表单可能就没了。
-                    val form = readForm()
+                    val form = readForm(pkg)
                     val recorded = form != null && form.looksLikeLogin &&
                         capture(form, pkg, submitted = true)
                     // 没抓到就等窗口切换事件，用切换前的缓存快照补一次。
                     awaitingArrival = !recorded
                 } else {
-                    refreshCache()
+                    refreshCache(pkg)
                 }
             }
 
@@ -103,11 +103,11 @@ class CaptureAccessibilityService : AccessibilityService() {
                         capture(cached, pkg, submitted = true)
                     }
                 }
-                refreshCache()
+                refreshCache(pkg)
             }
 
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_FOCUSED -> refreshCache()
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> refreshCache(pkg)
 
             else -> Unit
         }
@@ -127,12 +127,12 @@ class CaptureAccessibilityService : AccessibilityService() {
     // ── 扫描 ─────────────────────────────────────────────────────
 
     /** 节流刷新快照。文本变化事件一秒能来十几次，不节流会拖垮输入框。 */
-    private fun refreshCache() {
+    private fun refreshCache(pkg: String) {
         val now = SystemClock.uptimeMillis()
         if (now - lastScanAt < THROTTLE_MS) return
         lastScanAt = now
 
-        val form = readForm() ?: return
+        val form = readForm(pkg) ?: return
         if (!form.looksLikeLogin) {
             cachedForm = null
             return
@@ -149,7 +149,7 @@ class CaptureAccessibilityService : AccessibilityService() {
      * 崩溃会被系统记成服务异常，直接影响自动填充是否还愿意被调用。
      */
     @Suppress("DEPRECATION")
-    private fun readForm(): A11yLoginForm? {
+    private fun readForm(pkg: String): A11yLoginForm? {
         val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
         val nodes = ArrayList<NodeSnapshot>(64)
         try {
@@ -159,8 +159,35 @@ class CaptureAccessibilityService : AccessibilityService() {
         } finally {
             runCatching { root.recycle() }
         }
-        return A11yFormDetector.detect(nodes)
+        val browser = BrowserHosts.isBrowser(pkg)
+        return A11yFormDetector.detect(
+            nodes,
+            pageChrome = if (browser) appChromeLabels(pkg) else emptySet(),
+            preferContentTitle = browser
+        )
     }
+
+    /**
+     * 宿主应用自己的界面文案（浏览器名）。
+     *
+     * 浏览器里"最浅的文本节点"永远是它自己的工具栏，标题会变成「夸克」「Chrome」。
+     * 这里取到 App 名交给识别层排除，让标题落到网页正文上。
+     *
+     * 取不到（包名不对、权限异常）就返回空集，退化成原来的行为，不影响捕获。
+     */
+    @Suppress("DEPRECATION")
+    private fun appChromeLabels(pkg: String): Set<String> = runCatching {
+        val label = packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0))
+            ?.toString()
+            ?.trim()
+        buildSet {
+            if (!label.isNullOrEmpty()) {
+                add(label)
+                // 「夸克」与「夸克浏览器」会同时出现在工具栏与标签栏上
+                add(label + "浏览器")
+            }
+        }
+    }.getOrDefault(emptySet())
 
     @Suppress("DEPRECATION")
     private fun flatten(root: AccessibilityNodeInfo, out: MutableList<NodeSnapshot>) {
@@ -226,18 +253,21 @@ class CaptureAccessibilityService : AccessibilityService() {
         val gw = (applicationContext as App).gateway
 
         // 只有白名单浏览器才尝试从地址栏认站点；其余应用一律只按包名。
-        val host = if (BrowserHosts.isBrowser(sourcePackage)) {
-            BrowserHosts.hostFromCandidates(form.siteCandidates)
+        val browser = BrowserHosts.isBrowser(sourcePackage)
+        val host = if (browser) BrowserHosts.hostFromCandidates(form.siteCandidates) else null
+        // 浏览器里**绝不**拿包名当站点身份：`com.quark.browser` 不是站点，
+        // 拿它当键会把夸克里打开的每个网站混成同一条（下次在任一站都可能被填进去）。
+        // 认不出域名就退化成"按标题认"，至少不会把 A 站的密码挂到 B 站名下。
+        val packageNorm = if (host == null && !browser) {
+            sourcePackage.takeIf { it != packageName }
         } else {
             null
         }
-        // 有域名时包名必然是浏览器，存下来会让"同一个浏览器里的所有网站"混成一片
-        val packageNorm = if (host == null) sourcePackage.takeIf { it != packageName } else null
 
         val score = CaptureConfidence.score(
             hasPassword = true,
             hasUsername = form.hasUsername,
-            hasSiteIdentity = host != null || packageNorm != null,
+            hasSiteIdentity = host != null || packageNorm != null || (browser && !form.pageTitle.isNullOrBlank()),
             submitted = submitted,
             hasTitle = !form.pageTitle.isNullOrBlank()
         )

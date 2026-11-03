@@ -208,4 +208,72 @@ class A11yFormDetectorTest {
         // 标题里的"登录"不该让它被当成按钮排除掉
         assertEquals("登录 - 淘宝网", form.pageTitle)
     }
+
+    // ── 浏览器：标题不能是浏览器名 ────────────────────────────────
+
+    @Test
+    fun `浏览器里标题取网页正文而不是最浅的浏览器名`() {
+        // 真实形态：夸克把工具栏文案摆在 depth 1，网页内容在 WebView 里更深
+        val nodes = listOf(
+            label("夸克", depth = 1),
+            label("QQ邮箱 - 登录", depth = 5),
+            field("demo_user@example.com", "邮箱账号").copy(depth = 6),
+            pwd("Zx8Kq2Lm7V").copy(depth = 6)
+        )
+        val form = A11yFormDetector.detect(
+            nodes,
+            pageChrome = setOf("夸克", "夸克浏览器"),
+            preferContentTitle = true
+        )
+        assertEquals("QQ邮箱", form.pageTitle)
+    }
+
+    @Test
+    fun `浏览器里只剩宿主文案时标题留空也不拿它顶上`() {
+        val nodes = listOf(label("夸克", depth = 1), pwd("pw").copy(depth = 6))
+        val form = A11yFormDetector.detect(
+            nodes,
+            pageChrome = setOf("夸克"),
+            preferContentTitle = true
+        )
+        assertNull(form.pageTitle)
+    }
+
+    @Test
+    fun `浏览器里工具栏占位字不算标题`() {
+        val nodes = listOf(
+            label("搜索或输入网址", depth = 1),
+            label("新建标签页", depth = 2),
+            pwd("pw").copy(depth = 6)
+        )
+        val form = A11yFormDetector.detect(nodes, preferContentTitle = true)
+        assertNull(form.pageTitle)
+    }
+
+    @Test
+    fun `浏览器里网页标题前后带登录字样时剪成站点名`() {
+        val nodes = listOf(
+            label("夸克", depth = 1),
+            label("登录 | QQ邮箱", depth = 5),
+            pwd("pw").copy(depth = 6)
+        )
+        val form = A11yFormDetector.detect(
+            nodes,
+            pageChrome = setOf("夸克"),
+            preferContentTitle = true
+        )
+        assertEquals("QQ邮箱", form.pageTitle)
+    }
+
+    @Test
+    fun `非浏览器保持原样仍取最浅节点`() {
+        val form = A11yFormDetector.detect(
+            listOf(
+                label("淘宝", depth = 1),
+                field("tb_1", "账号").copy(depth = 2),
+                pwd("pw").copy(depth = 2)
+            )
+        )
+        assertEquals("淘宝", form.pageTitle)
+    }
 }

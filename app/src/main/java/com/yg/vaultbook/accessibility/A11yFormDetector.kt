@@ -57,6 +57,30 @@ object A11yFormDetector {
 
     private const val MAX_SITE_CANDIDATES = 12
 
+    /**
+     * 浏览器界面自己的字眼，永远不会是"这条记录叫什么"。
+     *
+     * 加这批词不是为了认站点，是为了**别把浏览器的工具栏当成站点名** ——
+     * 一旦记成「夸克」「新建标签页」，用户下次在同一个浏览器里打开别的网站，
+     * 自动填充就会拿着这条去匹配，等于把凭据往错误的站点上填。
+     */
+    private val CHROME_WORDS = setOf(
+        "新建标签页", "新标签页", "无痕模式", "无痕浏览", "隐私模式",
+        "首页", "书签", "历史记录", "下载", "收藏", "窗口", "菜单", "更多",
+        "分享", "刷新", "返回", "前进", "关闭", "搜索或输入网址", "搜索或输入网站",
+        "输入网址", "搜索", "取消", "确定", "完成", "设置",
+        "new tab", "incognito", "bookmarks", "history", "downloads", "settings"
+    )
+
+    /**
+     * 浏览器里"网页正文"的最小深度。
+     *
+     * 浏览器 UI 是 `DecorView → 若干层 → 工具栏/标签栏`（深度一般 ≤ 3），
+     * 网页内容要再往下穿过 WebView 容器（深度 ≥ 4）。这个数字只是"先往深处找"
+     * 的起点，找不到仍会退回全树，所以调错不会漏标题，只会多退一步。
+     */
+    private const val BROWSER_CONTENT_MIN_DEPTH = 4
+
     /** 密码框关键词。中文优先，因为国内 App 的 hint 基本都是中文。 */
     private val PASSWORD_HINTS = listOf(
         "password", "passwd", "pwd", "passcode", "secret",
@@ -80,7 +104,11 @@ object A11yFormDetector {
         "sign in", "signin", "log in", "login", "submit", "continue", "next"
     )
 
-    fun detect(nodes: List<NodeSnapshot>): A11yLoginForm {
+    fun detect(
+        nodes: List<NodeSnapshot>,
+        pageChrome: Set<String> = emptySet(),
+        preferContentTitle: Boolean = false
+    ): A11yLoginForm {
         val visible = nodes.filter { it.visible }
         if (visible.isEmpty()) return A11yLoginForm()
 
@@ -113,7 +141,7 @@ object A11yFormDetector {
             password = password,
             submitLabels = submitLabels,
             siteCandidates = collectSiteCandidates(visible, passwordIdx, usernameIdx),
-            pageTitle = pickPageTitle(visible),
+            pageTitle = pickPageTitle(visible, pageChrome, preferContentTitle),
             passwordFieldCount = passwordFieldCount,
             usernameFieldCount = if (usernameIdx != null) 1 else 0
         )
@@ -216,13 +244,64 @@ object A11yFormDetector {
      *
      * 浏览器里这通常是标签页标题或网页 `<title>`，两者都足够当"这条记录叫什么"。
      * 拿不到就返回 null —— 上层会把标题退化成站点名，不影响功能。
+     *
+     * ── 浏览器里那个「最浅」是错的 ───────────────────────────────
+     * 浏览器自己的界面（工具栏、标签栏、地址栏占位字）比网页内容浅得多，
+     * 于是取最浅节点必然拿到「夸克」这种 App 名：用户在夸克里登录 QQ 邮箱，
+     * 记下来的一条叫「夸克」，等于把浏览器当成了站点。
+     *
+     * 所以浏览器里改成两条规则：
+     * 1. [pageChrome] 里列出的宿主文案（浏览器名）**永远不参与**；
+     * 2. 先在深于 [BROWSER_CONTENT_MIN_DEPTH] 的节点里找 —— 网页正文总在 WebView 里，
+     *    比浏览器的工具栏深；实在找不到才退回全树。
+     *
+     * @param pageChrome 宿主应用自己的界面文案，不许当标题
+     * @param preferContentTitle 是否按"先取网页正文"的规则找（浏览器里为 true）
      */
-    private fun pickPageTitle(nodes: List<NodeSnapshot>): String? =
-        nodes.asSequence()
+    private fun pickPageTitle(
+        nodes: List<NodeSnapshot>,
+        pageChrome: Set<String>,
+        preferContentTitle: Boolean
+    ): String? {
+        val usable = nodes.asSequence()
             .filter { !it.editable && it.hasText }
             .filter { node -> !(node.clickable && isSubmitLabel(node.text)) }
             .filter { (it.text?.length ?: 0) in 2..80 }
-            .minByOrNull { it.depth }
-            ?.text
-            ?.trim()
+            .filter { node ->
+                val t = node.text!!.trim()
+                val lower = t.lowercase()
+                pageChrome.none { it.isNotBlank() && t.equals(it, ignoreCase = true) } &&
+                    lower !in CHROME_WORDS
+            }
+
+        if (preferContentTitle) {
+            usable.filter { it.depth >= BROWSER_CONTENT_MIN_DEPTH }.minByOrNull { it.depth }
+                ?.let { return tidyPageTitle(it.text) }
+        }
+        return usable.minByOrNull { it.depth }?.text?.trim()
+    }
+
+    /** 网页标题里"这只是一张登录页"的成分，剪掉才像站点名。 */
+    private val TITLE_NOISE = setOf(
+        "登录", "登陆", "登录页", "登录页面", "注册", "注册页",
+        "sign in", "signin", "log in", "login", "sign up", "account login"
+    )
+
+    /** 标题分隔符：`QQ邮箱 - 登录`、`登录 | QQ邮箱`、`QQ邮箱·登录`。 */
+    private val TITLE_SPLIT = Regex("\\s*[|｜]\\s*|\\s+[-—–·]\\s+")
+
+    /**
+     * 把网页标题收成站点名：`QQ邮箱 - 登录` → `QQ邮箱`，`登录 | QQ邮箱` → `QQ邮箱`。
+     *
+     * 只在浏览器里做（[preferContentTitle]）。规则刻意只剪"整段就是一个登录词"的情况，
+     * 不做模糊截断 —— 标题里带「登录」的站点名是存在的（如「登录宝」）。
+     */
+    private fun tidyPageTitle(raw: String?): String? {
+        val text = raw?.trim().orEmpty()
+        if (text.isEmpty()) return null
+        val kept = text.split(TITLE_SPLIT)
+            .map { it.trim() }
+            .filter { it.length >= 2 && it.lowercase() !in TITLE_NOISE }
+        return (kept.firstOrNull() ?: text).take(80)
+    }
 }
