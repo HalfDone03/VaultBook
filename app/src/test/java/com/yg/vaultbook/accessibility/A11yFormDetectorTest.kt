@@ -276,4 +276,42 @@ class A11yFormDetectorTest {
         )
         assertEquals("淘宝", form.pageTitle)
     }
+
+    @Test
+    fun `树被压得很浅时也能取到网页标题`() {
+        // 小米浏览器这类把整棵树压平的：网页标题只在第 2 层。
+        // 门槛卡死 4 就一个候选都不剩，退回最浅又拿到工具栏。
+        val nodes = listOf(
+            label("浏览器", depth = 0),
+            label("搜索或输入网址", depth = 1),
+            label("QQ邮箱", depth = 2),
+            field("wx_9", "账号").copy(depth = 2),
+            pwd("pw").copy(depth = 3)
+        )
+        val form = A11yFormDetector.detect(
+            nodes,
+            pageChrome = setOf("浏览器"),
+            preferContentTitle = true
+        )
+        assertEquals("QQ邮箱", form.pageTitle)
+        assertEquals("wx_9", form.username)
+    }
+
+    @Test
+    fun `工具栏文案全被排除时标题留空`() {
+        val nodes = listOf(
+            label("浏览器", depth = 0),
+            label("新建标签页", depth = 0),
+            label("无痕模式", depth = 1),
+            field("a1", "账号").copy(depth = 1),
+            pwd("pw").copy(depth = 1)
+        )
+        val form = A11yFormDetector.detect(
+            nodes,
+            pageChrome = setOf("浏览器"),
+            preferContentTitle = true
+        )
+        assertNull(form.pageTitle)
+        assertEquals("pw", form.password)
+    }
 }

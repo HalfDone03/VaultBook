@@ -150,22 +150,71 @@ class CaptureAccessibilityService : AccessibilityService() {
      */
     @Suppress("DEPRECATION")
     private fun readForm(pkg: String): A11yLoginForm? {
-        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
-        val nodes = ArrayList<NodeSnapshot>(64)
-        try {
-            flatten(root, nodes)
-        } catch (e: Exception) {
-            return null
-        } finally {
-            runCatching { root.recycle() }
-        }
-        val browser = BrowserHosts.isBrowser(pkg)
+        val sheets = readWindowNodes()
+        if (sheets.isEmpty()) return null
+        // 有些 ROM 把网页内容放在**另一个窗口**里（小米浏览器、部分 WebView），
+        // `rootInActiveWindow` 只看得到宿主自己的工具栏 —— 那样连密码框都读不到，
+        // 表现就是「开了无障碍但什么都抓不到」。所以把所有窗口都拍平，
+        // 优先选含密码框的那个窗口，其次含任意输入框的，最后才用第一个。
+        val chosen = sheets.firstOrNull { nodes -> nodes.any { it.visible && it.password } }
+            ?: sheets.firstOrNull { nodes -> nodes.any { it.visible && it.editable } }
+            ?: sheets.first()
+        val browser = isBrowserLike(pkg)
         return A11yFormDetector.detect(
-            nodes,
+            chosen,
             pageChrome = if (browser) appChromeLabels(pkg) else emptySet(),
             preferContentTitle = browser
         )
     }
+
+    /**
+     * 把当前每个窗口的节点树各拍平一份。
+     *
+     * 只读 `rootInActiveWindow` 会漏掉"网页在独立窗口"的情况（小米浏览器、
+     * 部分定制 WebView），那种环境下密码框根本不在活动窗口里。
+     * 单个窗口读取失败不影响其它窗口；全部都拿不到才退回活动窗口。
+     */
+    @Suppress("DEPRECATION")
+    private fun readWindowNodes(): List<List<NodeSnapshot>> {
+        val out = ArrayList<List<NodeSnapshot>>(4)
+        val opened = runCatching { windows }.getOrNull()
+        if (opened != null) {
+            for (window in opened) {
+                val root = runCatching { window.root }.getOrNull() ?: continue
+                val nodes = ArrayList<NodeSnapshot>(64)
+                try {
+                    flatten(root, nodes)
+                } catch (e: Exception) {
+                    // 这棵树坏了就跳过它，别让一个窗口拖垮整次读取
+                } finally {
+                    runCatching { root.recycle() }
+                }
+                if (nodes.isNotEmpty()) out.add(nodes)
+            }
+        }
+        if (out.isEmpty()) {
+            val root = runCatching { rootInActiveWindow }.getOrNull() ?: return emptyList()
+            val nodes = ArrayList<NodeSnapshot>(64)
+            try {
+                flatten(root, nodes)
+            } catch (e: Exception) {
+                return emptyList()
+            } finally {
+                runCatching { root.recycle() }
+            }
+            if (nodes.isNotEmpty()) out.add(nodes)
+        }
+        return out
+    }
+
+    /**
+     * 这个包名是不是浏览器：白名单里有，或者它的应用名带「浏览器」。
+     *
+     * 光靠白名单会漏掉定制 ROM 自带的浏览器（小米/红米那只就叫「浏览器」），
+     * 漏掉之后标题又会退回"最浅节点"，记下来一条叫「浏览器」的账号。
+     */
+    private fun isBrowserLike(pkg: String): Boolean =
+        BrowserHosts.isBrowser(pkg) || BrowserHosts.looksLikeBrowserLabel(appChromeLabels(pkg))
 
     /**
      * 宿主应用自己的界面文案（浏览器名）。
@@ -252,8 +301,8 @@ class CaptureAccessibilityService : AccessibilityService() {
 
         val gw = (applicationContext as App).gateway
 
-        // 只有白名单浏览器才尝试从地址栏认站点；其余应用一律只按包名。
-        val browser = BrowserHosts.isBrowser(sourcePackage)
+        // 只有浏览器才尝试从地址栏认站点；其余应用一律只按包名。
+        val browser = isBrowserLike(sourcePackage)
         val host = if (browser) BrowserHosts.hostFromCandidates(form.siteCandidates) else null
         // 浏览器里**绝不**拿包名当站点身份：`com.quark.browser` 不是站点，
         // 拿它当键会把夸克里打开的每个网站混成同一条（下次在任一站都可能被填进去）。

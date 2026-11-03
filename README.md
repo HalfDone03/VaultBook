@@ -7,10 +7,10 @@
 | 项 | 内容 |
 |---|---|
 | 应用名 / 项目名 | VaultBook |
-| 版本 | 1.15（versionCode 250） |
+| 版本 | 1.16（versionCode 260） |
 | 包名 | `com.yg.vaultbook` |
 | 系统 | Android 8.0（API 26）～ API 35 |
-| 安装包 | `dist/VaultBook-1.15.apk`，7.09 MB，只含 `arm64-v8a` |
+| 安装包 | `dist/VaultBook-1.16.apk`，7.09 MB，只含 `arm64-v8a` |
 
 ---
 
@@ -88,7 +88,7 @@
 从 [Releases](https://github.com/HalfDone03/VaultBook/releases) 下载 APK，或本地构建后用 adb：
 
 ```bash
-adb install -r dist/VaultBook-1.15.apk
+adb install -r dist/VaultBook-1.16.apk
 ```
 
 或双击 `install-apk.cmd`（自动找 adb 与最新安装包），也可以把 APK 拷到手机上点开装。
@@ -154,7 +154,7 @@ app/src/main/java/com/yg/vaultbook/
 ./gradlew :app:testDebugUnitTest
 ```
 
-30 个测试类、506 个用例：解析（键值对、冒号链、表格、JSON、XML、HTML 表格、括号包值、查询串、交替行、链接与连接串、命令行、连写）、加密、匹配打分、备份格式、CSV、拼音、密码强度、TOTP、排序与去重签名、系统服务组件名解析等。
+30 个测试类、508 个用例：解析（键值对、冒号链、表格、JSON、XML、HTML 表格、括号包值、查询串、交替行、链接与连接串、命令行、连写）、加密、匹配打分、备份格式、CSV、拼音、密码强度、TOTP、排序与去重签名、系统服务组件名解析等。
 
 ---
 

@@ -63,6 +63,7 @@ object BrowserHosts {
         "com.sec.android.app.sbrowser",
         "com.android.browser",
         "com.miui.browser",
+        "com.mi.globalbrowser",
         "com.heytap.browser",
         "com.vivo.browser",
         "com.huawei.browser",
@@ -74,6 +75,19 @@ object BrowserHosts {
     private val ADDRESS_BAR_ID_HINTS = listOf("url", "omnibox", "address", "location", "search_box", "addr")
 
     fun isBrowser(pkg: String?): Boolean = pkg != null && pkg in PACKAGES
+
+    /**
+     * 这个应用名看起来是不是浏览器。
+     *
+     * 白名单只能盖住"我认识的那些包名"，而定制 ROM 的浏览器包名五花八门
+     * （小米/红米自带的那只叫「浏览器」，包名有的在表里、有的不在）。
+     * 抓取时已经拿到了应用名，用它兜一层：名字里带「浏览器」或「browser」，
+     * 就当浏览器处理。判断错了只会影响"标题怎么取"，不会写错站点键。
+     */
+    fun looksLikeBrowserLabel(labels: Set<String>): Boolean = labels.any { raw ->
+        val name = raw.trim().lowercase()
+        name.isNotEmpty() && (name.contains("浏览器") || name.contains("browser"))
+    }
 
     /**
      * 这个节点的 id / 描述看起来像地址栏吗。

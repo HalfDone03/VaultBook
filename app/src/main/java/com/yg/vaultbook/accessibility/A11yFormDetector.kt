@@ -275,8 +275,22 @@ object A11yFormDetector {
             }
 
         if (preferContentTitle) {
-            usable.filter { it.depth >= BROWSER_CONTENT_MIN_DEPTH }.minByOrNull { it.depth }
-                ?.let { return tidyPageTitle(it.text) }
+            // 固定阈值在不同浏览器上都会踩空：小米浏览器把整棵树压得比 Chrome 浅，
+            // 门槛卡 4 就一个候选都不剩，退回去又拿到工具栏。
+            // 改成"看这棵树里浏览器自己的界面停在第几层"，取比它更深的那批。
+            val chromeDepth = nodes.asSequence()
+                .filter { (it.text?.length ?: 0) in 1..80 }
+                .filter { node ->
+                    val t = node.text!!.trim()
+                    pageChrome.any { it.isNotBlank() && t.equals(it, ignoreCase = true) } ||
+                        t.lowercase() in CHROME_WORDS
+                }
+                .maxOfOrNull { it.depth }
+                ?: (BROWSER_CONTENT_MIN_DEPTH - 1)
+
+            val below = usable.filter { it.depth > chromeDepth }
+            val pool = if (below.any()) below else usable
+            pool.minByOrNull { it.depth }?.let { return tidyPageTitle(it.text) }
         }
         return usable.minByOrNull { it.depth }?.text?.trim()
     }
