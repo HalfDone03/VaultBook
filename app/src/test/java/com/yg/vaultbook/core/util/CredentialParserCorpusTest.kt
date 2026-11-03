@@ -2390,6 +2390,39 @@ class CredentialParserCorpusTest {
                 Row("学信网", null, "Cd@654321")
             )
         ),
+        Case(
+            "密码写在账号前面还粘着字段名",
+            "微博密码Qw7Er9T账号wb_60",
+            listOf(Row("微博", "wb_60", "Qw7Er9T"))
+        ),
+        Case(
+            "交错写法换成口令与用户名",
+            "知乎口令Zh@606060用户名zh_61",
+            listOf(Row("知乎", "zh_61", "Zh@606060"))
+        ),
+        Case(
+            "密码中间夹一个空格",
+            "账号：sp_62 密码：Zx8Kq 2Lm7V",
+            listOf(Row(null, "sp_62", "Zx8Kq 2Lm7V"))
+        ),
+        Case(
+            "不打冒号且密码中间有空格",
+            "淘宝 账号 sp_63 密码 Zx8Kq 2Lm7V",
+            listOf(Row("淘宝", "sp_63", "Zx8Kq 2Lm7V"))
+        ),
+        Case(
+            "平台名和密码之间夹一句备注",
+            "微软账户备注家里用密码Ab@717171",
+            listOf(Row("微软账户", null, "Ab@717171", "家里用"))
+        ),
+        Case(
+            "多行交错与夹备注混在一起",
+            "微博密码Qw7Er9T账号wb_62\n微软账户备注家里用密码Ab@727272",
+            listOf(
+                Row("微博", "wb_62", "Qw7Er9T"),
+                Row("微软账户", null, "Ab@727272", "家里用")
+            )
+        ),
     )
 
     @Test

@@ -363,6 +363,52 @@ object CredentialParser {
     fun parse(raw: String?): Result? = parseRaw(raw)
         ?.dropTitleGluedAccount()
         ?.dropDoubledLabel(raw)
+        ?.unpackInterleaved()
+        ?.unpackSandwichNote()
+
+    /**
+     * 平台名、密码、账号交错着粘在一起：`淘宝密码Xyz123账号tb_1`。
+     *
+     * 这种行里字段名的顺序是「密码在前、账号在后」，按位置猜会把整段
+     * `淘宝密码Xyz123账号` 当平台名、把 `tb_1` 当密码 —— 两样都错位。
+     * 判据是标题以账号类字段名收尾、中间紧跟一个密码类字段名：
+     * 那两段就是被写反的密码与账号。
+     */
+    private fun Result.unpackInterleaved(): Result {
+        val name = title ?: return this
+        val secret = password ?: return this
+        if (username != null) return this
+        val m = INTERLEAVED_TITLE.find(name) ?: return this
+        val head = m.groupValues[1].trim()
+        val mid = m.groupValues[2].trim()
+        if (head.isEmpty() || isLabelWord(head)) return this
+        if (!looksLikeSecret(mid) || !looksLikeAccountValue(secret)) return this
+        return copy(title = head, username = secret, password = mid)
+    }
+
+    /**
+     * 平台名和密码之间夹了一句没标点的备注：`微软账户备注家里用密码Xyz123`。
+     *
+     * 只认「标题里有备注类字段名、而且它前面还有平台名、后面还有话」这一种，
+     * 备注落到 notes、标题只留前面的平台名。
+     */
+    private fun Result.unpackSandwichNote(): Result {
+        val name = title ?: return this
+        if (notes != null) return this
+        val m = SANDWICH_NOTE.find(name) ?: return this
+        val head = m.groupValues[1].trim()
+        val body = m.groupValues[2].trim()
+        if (head.isEmpty() || isLabelWord(head)) return this
+        return copy(title = head, notes = body)
+    }
+
+    /** 见 [unpackInterleaved]：`平台名 + 密码标签 + 值 + 账号标签`。 */
+    private val INTERLEAVED_TITLE = Regex(
+        "^(.{1,20}?)(?:密码|密碼|口令)(\\S{3,64}?)(?:账号|帐号|账户|用户名|登录名)$"
+    )
+
+    /** 见 [unpackSandwichNote]：`平台名 + 备注标签 + 一段话`。 */
+    private val SANDWICH_NOTE = Regex("^(.{1,20}?)(?:备注|說明|说明|注释)(.{2,30})$")
 
     /**
      * 标题尾巴上多留了一个字段名：`计算机网站密码密码  Zx8Kq2Lm7V` 会把标题认成
